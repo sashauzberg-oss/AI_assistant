@@ -884,3 +884,9 @@ body.desktop .composer .pet-name-row span { display: none; }
 body.desktop .composer .pet-name-row input { padding: 3px 6px; font-size: 13px; }
 .pet-done { margin-top: 10px; }
 body.desktop .pet-done { margin: 0; padding: 5px 9px; font-size: 13px; }
+/* 18 pets: the desktop picker row scrolls sideways */
+body.desktop .composer .pet-grid { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+body.desktop .composer .pet-grid::-webkit-scrollbar { display: none; }
+body.desktop .composer .pet-choice { flex: none; }
+body.desktop .composer .pet-name-row { flex: 0 0 104px; min-width: 0; }
+body.desktop .composer .pet-grid { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }

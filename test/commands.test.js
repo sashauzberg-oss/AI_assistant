@@ -162,3 +162,33 @@ test("pet commands", () => {
   assert.deepEqual(parseCommand("I want a duckling"), { name: "pet", args: { kind: "duck" } });
   assert.equal(name("what does a fox say"), null);
 });
+
+test("understands slightly misspelled commands", async () => {
+  const fs = await import("node:fs");
+  const { Corrector } = await import("../public/js/autocorrect.js");
+  const dictionary = new Corrector(fs.readFileSync(new URL("../public/data/words.txt", import.meta.url), "utf8"));
+  const parse = (t) => parseCommand(t, { isWord: (w) => dictionary.isKnown(w) });
+  assert.deepEqual(parse("plya jazz").args, { query: "jazz" });
+  assert.equal(parse("plya jazz").understood, "play jazz");
+  assert.deepEqual(parse("tiemr 5 minutes").args, { seconds: 300, label: "Timer" });
+  assert.deepEqual(parse("wether in Paris").args, { location: "paris" });
+  assert.equal(parse("stpo").args.action, "stop");
+  assert.equal(parse("nxet song").args.action, "next");
+  assert.equal(parse("generate a pasword").name, "password");
+  assert.deepEqual(parse("be a unicron").args, { kind: "unicorn" });
+  assert.deepEqual(parse("play jaz").args, { query: "jazz" });
+  assert.equal(parse("tranlate this").args.mode, "translate");
+  // Real words and names are left alone
+  assert.equal(parse("plan my day"), null);
+  assert.equal(parse("vote for pedro"), null);
+  assert.deepEqual(parse("play muse").args, { query: "muse" });
+  assert.equal(parse("play muse").understood, undefined);
+});
+
+test("18 pets", async () => {
+  const { PET_KINDS } = await import("../public/js/pets.js");
+  assert.equal(PET_KINDS.length, 18);
+  assert.deepEqual(parseCommand("switch to a koala").args, { kind: "koala" });
+  assert.deepEqual(parseCommand("be a raccoon").args, { kind: "raccoon" });
+  assert.deepEqual(parseCommand("i want a tortoise").args, { kind: "turtle" });
+});

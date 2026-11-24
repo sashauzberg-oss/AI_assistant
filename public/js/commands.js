@@ -3,6 +3,7 @@
 // Pure functions only (no DOM), so it can be unit-tested in Node.
 import { looksLikeMath } from "./calc.js";
 import { parseConversion } from "./extras.js";
+import { editDistance } from "./autocorrect.js";
 
 const WORD_NUMBERS = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -133,7 +134,7 @@ export function normalizeCommand(text) {
 const SCREEN_RE =
   /\b(answer|solve|do|explain|translate|summari[sz]e) (this|that|it|these|the question|this question|my question|the problem|this problem)\b|\bwhat('s| is) (this|on my screen)\b|\b(look at|read|check|see|scan) (my|the|this) screen\b|\b(screenshot|snip)\b|\bwhat does (this|it) say\b|\bhelp me with this\b/;
 
-export function parseCommand(input) {
+function parseExact(input) {
   const s = normalizeCommand(input);
   if (!s) return null;
   let m;
@@ -141,7 +142,7 @@ export function parseCommand(input) {
   if (/^(help|commands|what can you do|what can i say|\?)$/.test(s)) return { name: "help" };
 
   // ----- the pet -----
-  const PET_WORDS = { cat: "cat", kitty: "cat", kitten: "cat", dog: "dog", puppy: "dog", doggo: "dog", bunny: "bunny", rabbit: "bunny", fox: "fox", frog: "frog", penguin: "penguin", panda: "panda", owl: "owl", hamster: "hamster", duck: "duck", duckling: "duck", chick: "duck", axolotl: "axolotl", dragon: "dragon" };
+  const PET_WORDS = { cat: "cat", kitty: "cat", kitten: "cat", dog: "dog", puppy: "dog", doggo: "dog", bunny: "bunny", rabbit: "bunny", fox: "fox", frog: "frog", penguin: "penguin", panda: "panda", owl: "owl", hamster: "hamster", duck: "duck", duckling: "duck", chick: "duck", axolotl: "axolotl", dragon: "dragon", unicorn: "unicorn", pig: "pig", piggy: "pig", koala: "koala", turtle: "turtle", tortoise: "turtle", octopus: "octopus", raccoon: "raccoon" };
   const petWord = `(${Object.keys(PET_WORDS).join("|")})`;
   if ((m = s.match(new RegExp(`^(?:change|switch|turn)(?: my| the| your)?(?: pet| buddy| self|self)?(?: in)?(?: to| into) (?:a |an )?${petWord}s?$|^(?:be|become) (?:a |an )?${petWord}$|^(?:i want|give me|get me) (?:a |an )?${petWord}(?: pet)?$|^${petWord} (?:pet|mode)$`)))) {
     return { name: "pet", args: { kind: PET_WORDS[m.slice(1).find(Boolean)] } };
@@ -323,6 +324,84 @@ export function parseCommand(input) {
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------- understanding typos
+
+// Words Nova's built-in commands care about. A slightly misspelled one ("plya", "tiemr",
+// "wether") is matched to the closest of these when a message isn't understood as typed.
+const GENRE_WORDS = `jazz lofi classical christmas rock pop chill chillhop relaxing relax study studying focus sleep sleeping ambient piano
+  country metal reggae techno house dance party workout happy sad indie blues rap hiphop soul funk folk acoustic electronic dubstep
+  bossa lounge retro romantic halloween spooky kpop jpop anime latin gospel oldies disco trance`.split(/\s+/);
+const VOCAB = new Set([
+  ...`play music song songs radio stop pause resume continue next skip volume louder quieter mute unmute timer timers alarm alarms
+  remind reminder minutes minute seconds second hours hour cancel weather forecast temperature joke jokes flip coin roll dice random
+  number note notes list shopping remember forget password generate stopwatch pomodoro focus start open search google youtube define
+  meaning translate explain answer solve screen screenshot copy clipboard convert calculate time date today tomorrow help clear dark
+  light mode theme pet change switch become rename what weather miles kilometers meters centimeters feet inches pounds ounces grams
+  kilograms celsius fahrenheit gallons liters dollars euros`.split(/\s+/),
+  ...GENRE_WORDS,
+  ..."cat dog bunny rabbit fox frog penguin panda owl hamster duck axolotl dragon unicorn pig koala turtle octopus raccoon".split(" "),
+]);
+
+/** The closest vocabulary word for a misspelled word, or the word itself. */
+function fuzzWord(word, vocab, isWord) {
+  if (word.length < 3 || /[^a-z]/.test(word) || vocab.has(word) || isWord?.(word)) return word;
+  const max = word.length >= 7 ? 2 : 1; // short words may only be off by one letter
+  let best = null;
+  let tie = false;
+  for (const candidate of vocab) {
+    if (Math.abs(candidate.length - word.length) > max) continue;
+    const d = editDistance(word, candidate, max);
+    if (d > max || (d > 1 && candidate[0] !== word[0])) continue;
+    const score = d * 10 + (candidate[0] === word[0] ? 0 : 5);
+    if (!best || score < best.score) {
+      best = { candidate, score };
+      tie = false;
+    } else if (score === best.score && candidate !== best.candidate) {
+      tie = true;
+    }
+  }
+  return best && !tie ? best.candidate : word;
+}
+
+/** "play jaz" -> "play jazz": fix a slightly misspelled genre in a short music request. */
+function fixMusicQuery(command, isWord) {
+  if (command?.name !== "music_play" || !command.args.query) return command;
+  const words = command.args.query.split(/\s+/);
+  if (words.length > 3) return command;
+  const genres = new Set(GENRE_WORDS);
+  const fixed = words.map((w) => fuzzWord(w, genres, isWord)).join(" ");
+  return fixed === command.args.query ? command : { ...command, args: { query: fixed }, understood: `play ${fixed}` };
+}
+
+/**
+ * Understands what the user typed or said. Returns { name, args } or null.
+ * If the text isn't understood as typed, misspelled command words are matched to the closest
+ * known word and Nova tries again; then the result carries `understood` (the text it went with).
+ * options.isWord(word): true for real dictionary words, which are never "corrected".
+ */
+export function parseCommand(input, { isWord } = {}) {
+  const exact = parseExact(input);
+  if (exact) return fixMusicQuery(exact, isWord);
+  const s = normalizeCommand(input);
+  if (!s) return null;
+  // Capitalized words after the first are names ("Paris", "Adele"): never change those.
+  const names = new Set(
+    String(input)
+      .trim()
+      .split(/\s+/)
+      .slice(1)
+      .filter((w) => /^[A-Z]/.test(w))
+      .map((w) => w.toLowerCase().replace(/[^a-z]/g, "")),
+  );
+  const fixed = s
+    .split(/\s+/)
+    .map((w) => (names.has(w) ? w : fuzzWord(w, VOCAB, isWord)))
+    .join(" ");
+  if (fixed === s) return null;
+  const again = parseExact(fixed);
+  return again ? { ...fixMusicQuery(again, isWord), understood: fixed } : null;
 }
 
 /** Commands that run instantly in the browser even when the AI is available. */

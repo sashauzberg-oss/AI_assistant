@@ -10,7 +10,7 @@ import { Timers, chime } from "./timers.js";
 import { createToolbox } from "./tools.js";
 import { Conversation, NoKeyError } from "./ai.js";
 import { PetBuddy, createPetPicker, PETS } from "./pets.js";
-import { attachAutocorrect } from "./autocorrect.js";
+import { attachAutocorrect, loadCorrector } from "./autocorrect.js";
 
 applyIcons();
 
@@ -70,6 +70,12 @@ const SNIP_INSTRUCTIONS = {
   translate: `Translate the text in this screenshot into ${LANGUAGE} (if it's already in ${LANGUAGE}, translate it into English). Reply with only the translation.`,
   explain: "Explain what this screenshot shows, simply and briefly.",
 };
+
+// The dictionary also helps Nova understand slightly misspelled commands ("plya jazz"),
+// while leaving real words alone.
+let dictionary = null;
+loadCorrector().then((c) => (dictionary = c), () => {});
+const parseOptions = { isWord: (word) => !!dictionary?.isKnown(word) };
 
 const player = new MusicPlayer();
 const pet = new PetBuddy(); // the pixel pet who answers everything
@@ -743,7 +749,7 @@ async function askAboutSnip(image, mode, source, { label, mirror } = {}) {
   }
 }
 
-async function runOffline(text, image, source, command = parseCommand(text)) {
+async function runOffline(text, image, source, command = parseCommand(text, parseOptions)) {
   const msg = addAssistantMessage();
   let reply;
   if (image || command?.name === "answer_screen") {
@@ -760,6 +766,7 @@ async function runOffline(text, image, source, command = parseCommand(text)) {
     const q = encodeURIComponent(text);
     reply = `I'm in offline mode, so I only know built-in commands (type **help** to see them). Add an Anthropic API key in Settings and I can answer anything.\n\nMeanwhile, here's a [web search for “${text}”](https://www.google.com/search?q=${q}).`;
   }
+  if (reply && command?.understood) reply += `\n\n_(I took that as “${command.understood}”.)_`;
   if (reply) msg.setText(reply);
   msg.done();
   if (pet.state !== "happy") pet.setState("talking", 900);
@@ -772,7 +779,7 @@ async function submit(rawText, source = "text") {
   let image = state.attachment;
   if (!text && !image) return;
 
-  const command = text ? parseCommand(text) : null;
+  const command = text ? parseCommand(text, parseOptions) : null;
   state.lastActivity = Date.now();
   if (pet.state === "sleeping") pet.setState(pet.restingState());
 

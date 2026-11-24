@@ -66,6 +66,8 @@ function distance(a, b, max) {
   return prev[b.length];
 }
 
+export const editDistance = distance;
+
 function isSwap(a, b) {
   if (a.length !== b.length) return false;
   const diff = [];

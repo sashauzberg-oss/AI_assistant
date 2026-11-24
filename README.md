@@ -21,9 +21,11 @@ Nova is an AI assistant for your browser or desktop. Type or say what you want a
 | **what's 15% of 80**, **define serendipity**, **who is Ada Lovelace** | Calculates and looks things up |
 | *anything else* | Answers it with Claude, searching the web when needed |
 
-**Your pixel pet answers everything.** A little pixel-art pet sits next to the typing bar and answers your questions in pixel speech bubbles. It blinks, talks while it answers, thinks while it waits, bobs along to music and dozes off when you're away. Click it to pick another animal (cat, dog, bunny, fox, frog, penguin, panda, owl, hamster, duck, axolotl or dragon) and give it a name, or just say “be a dragon” or “call yourself Pixel”.
+**Your pixel pet answers everything.** A little pixel-art pet sits next to the typing bar and answers your questions in pixel speech bubbles. It blinks, talks while it answers, thinks while it waits, bobs along to music and dozes off when you're away. Click it to pick another animal (18 to choose from: cat, dog, bunny, fox, frog, penguin, panda, owl, hamster, duck, axolotl, dragon, unicorn, pig, koala, turtle, octopus or raccoon) and give it a name, or just say “be a dragon” or “call yourself Pixel”.
 
 **Auto-correct.** Typos are fixed as you type, like on a phone: “teh” becomes “the” when you press space, and “dont” becomes “don't”. A little chip shows what changed; click it or press Backspace right away to undo, and Nova won't change that word again. Names, links, ALL CAPS and your pet's name are left alone. Turn it off in Settings › Personal.
+
+**Typos don't trip Nova up.** Even when a typo slips through, Nova works out what you meant: “plya jazz”, “tiemr 5 minutes”, “wether in Paris” and “stpo” all work, and it tells you how it read them (“I took that as …”). Real words and names are never changed, and the AI reads past typos too.
 
 It also has voice control (including a hands-free mode with the wake word **“Nova”**), read-aloud answers, light and dark themes, and a layout that works on phones.
 
