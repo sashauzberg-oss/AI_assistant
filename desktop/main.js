@@ -1,10 +1,12 @@
-// Nova desktop app: the Nova web app in its own window, plus a global hotkey that snips
-// any part of the screen (like the Snipping Tool) and answers the question in it.
+// Nova desktop app: a floating typing bar (like Spotlight) that grows to show answers,
+// plus a global hotkey that snips any part of the screen (like the Snipping Tool) and
+// answers the question in it.
 import { app, BrowserWindow, Menu, Tray, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, screen, session, shell, systemPreferences, Notification } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startServer } from "../server.js";
+import { openApp } from "./apps.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const asset = (name) => path.join(here, "assets", name);
@@ -19,14 +21,17 @@ if (!app.requestSingleInstanceLock()) {
 
 // ------------------------------------------------------------------ settings
 
-export const DEFAULT_HOTKEYS = { snip: "CommandOrControl+Shift+Space", toggle: "Alt+Shift+N" };
+export const DEFAULT_HOTKEYS = { snip: "CommandOrControl+Shift+Space", toggle: "Alt+Space" };
+const BAR_WIDTH = 720; // includes the transparent margin around the bar for its shadow
 const DEFAULT_PORT = 47823; // fixed, so the app's saved notes and settings survive restarts
 
 const settingsFile = () => path.join(app.getPath("userData"), "desktop-settings.json");
 function loadSettings() {
   try {
     const saved = JSON.parse(fs.readFileSync(settingsFile(), "utf8"));
-    return { port: DEFAULT_PORT, ...saved, hotkeys: { ...DEFAULT_HOTKEYS, ...saved.hotkeys } };
+    // Saved shortcuts only count once the user has changed them; otherwise follow the defaults.
+    const hotkeys = saved.hotkeysCustomized ? { ...DEFAULT_HOTKEYS, ...saved.hotkeys } : { ...DEFAULT_HOTKEYS };
+    return { port: DEFAULT_PORT, ...saved, hotkeys };
   } catch {
     return { port: DEFAULT_PORT, hotkeys: { ...DEFAULT_HOTKEYS } };
   }
@@ -45,6 +50,8 @@ let tray = null;
 let popup = null;
 let snipping = false;
 let quitting = false;
+let keepOpen = false; // the page asks to stay open (file picker, settings)
+let movingProgrammatically = false;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -65,29 +72,55 @@ function lockDown(win, allowedPrefix) {
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
-    width: 980,
-    height: 820,
-    minWidth: 380,
-    minHeight: 480,
+    width: BAR_WIDTH,
+    height: 104,
     show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
     title: "Nova",
     icon: asset("icon.png"),
-    autoHideMenuBar: true,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0d14" : "#f5f6fb",
     webPreferences: {
       preload: path.join(here, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
-      backgroundThrottling: false, // keep music and timers smooth while hidden in the tray
+      backgroundThrottling: false, // keep music and timers smooth while hidden
       autoplayPolicy: "no-user-gesture-required",
     },
   });
+  mainWindow.setAlwaysOnTop(true, "floating");
   lockDown(mainWindow, serverUrl);
   mainWindow.webContents.on("did-start-loading", () => (rendererReady = false));
   mainWindow.loadURL(serverUrl);
   mainWindow.once("ready-to-show", () => {
-    if (!process.argv.includes("--hidden")) mainWindow.show();
+    if (!process.argv.includes("--hidden")) showMain();
   });
+  mainWindow.on("show", () => mainWindow.webContents.send("nova:visibility", true));
+  mainWindow.on("hide", () => mainWindow.webContents.send("nova:visibility", false));
+
+  // Like Spotlight: clicking somewhere else puts the bar away, unless it's pinned.
+  mainWindow.on("blur", () => {
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused() || !mainWindow.isVisible()) return;
+      if (settings.pinned || keepOpen || snipping || quitting) return;
+      mainWindow.hide();
+    }, 150);
+  });
+
+  // Remember where the user dragged the bar.
+  mainWindow.on("move", () => {
+    if (movingProgrammatically || !mainWindow.isVisible()) return;
+    const [x, y] = mainWindow.getPosition();
+    settings.barPosition = { x, y };
+    clearTimeout(createMainWindow.saveTimer);
+    createMainWindow.saveTimer = setTimeout(saveSettings, 500);
+  });
+
   mainWindow.on("close", (event) => {
     if (quitting) return;
     event.preventDefault();
@@ -97,18 +130,49 @@ function createMainWindow() {
       saveSettings();
       new Notification({
         title: "Nova is still running",
-        body: `Press ${formatAccelerator(settings.hotkeys.snip)} anywhere to snip a question. Quit from the tray icon.`,
+        body: `Press ${formatAccelerator(settings.hotkeys.toggle)} to open Nova, or ${formatAccelerator(settings.hotkeys.snip)} to snip a question.`,
         icon: asset("icon.png"),
       }).show();
     }
   });
 }
 
+/** Move/resize the bar without counting it as the user dragging it. */
+function setBarBounds(bounds) {
+  movingProgrammatically = true;
+  // Linux ignores size changes on non-resizable windows, so allow it for a moment.
+  mainWindow.setResizable(true);
+  mainWindow.setBounds(bounds);
+  mainWindow.setResizable(false);
+  setTimeout(() => (movingProgrammatically = false), 100);
+}
+
+function placeBar() {
+  const { height } = mainWindow.getBounds();
+  const saved = settings.barPosition;
+  const visible = saved && screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    return saved.x >= a.x - 100 && saved.x < a.x + a.width - 100 && saved.y >= a.y - 10 && saved.y < a.y + a.height - 60;
+  });
+  if (visible) {
+    setBarBounds({ x: saved.x, y: saved.y, width: BAR_WIDTH, height });
+    return;
+  }
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  setBarBounds({
+    x: Math.round(area.x + (area.width - BAR_WIDTH) / 2),
+    y: Math.round(area.y + area.height * 0.16),
+    width: BAR_WIDTH,
+    height,
+  });
+}
+
 function showMain() {
   if (!mainWindow) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) placeBar();
   mainWindow.show();
   mainWindow.focus();
+  mainWindow.webContents.send("nova:shown");
 }
 
 function toggleMain() {
@@ -151,8 +215,10 @@ async function captureDisplay() {
   return { display, image: source.thumbnail };
 }
 
-/** Full-screen overlay showing the frozen screenshot; resolves a rectangle (DIPs), "full" or null. */
-function selectRegion(display, image) {
+const SNIP_MODES = ["answer", "text", "translate", "explain"];
+
+/** Full-screen overlay showing the frozen screenshot; resolves { x, y, width, height, mode } (DIPs), { full, mode } or null. */
+function selectRegion(display, image, mode = "answer") {
   return new Promise((resolve) => {
     const overlay = new BrowserWindow({
       ...display.bounds,
@@ -191,8 +257,10 @@ function selectRegion(display, image) {
     };
     const onResult = (event, value) => {
       if (event.sender !== overlay.webContents) return;
-      if (value === "full") return finish("full");
-      const ok = value && ["x", "y", "width", "height"].every((k) => Number.isFinite(value[k]));
+      if (!value || typeof value !== "object") return finish(null);
+      const mode = SNIP_MODES.includes(value.mode) ? value.mode : "answer";
+      if (value.full) return finish({ full: true, mode });
+      const ok = ["x", "y", "width", "height"].every((k) => Number.isFinite(value[k]));
       if (!ok || value.width < 4 || value.height < 4) return finish(null);
       const x = Math.max(0, Math.min(display.bounds.width, value.x));
       const y = Math.max(0, Math.min(display.bounds.height, value.y));
@@ -201,13 +269,17 @@ function selectRegion(display, image) {
         y,
         width: Math.min(display.bounds.width - x, value.width),
         height: Math.min(display.bounds.height - y, value.height),
+        mode,
       });
     };
     ipcMain.on("overlay:ready", onReady);
     ipcMain.on("overlay:result", onResult);
     overlay.on("closed", () => finish(null));
     overlay.webContents.once("did-finish-load", () => {
-      overlay.webContents.send("overlay:image", `data:image/jpeg;base64,${image.toJPEG(92).toString("base64")}`);
+      overlay.webContents.send("overlay:image", {
+        dataUrl: `data:image/jpeg;base64,${image.toJPEG(92).toString("base64")}`,
+        mode: SNIP_MODES.includes(mode) ? mode : "answer",
+      });
     });
     overlay.loadFile(ui("overlay.html"));
   });
@@ -229,7 +301,7 @@ function encode(image) {
  * Takes a snip. Hides Nova first when Nova itself is in front, so it isn't in the picture.
  * Resolves { image, rect } (rect in screen coordinates) or null if cancelled.
  */
-export async function snip({ hideNova = false } = {}) {
+export async function snip({ hideNova = false, mode = "answer" } = {}) {
   if (snipping) return null;
   snipping = true;
   const restoreNova = hideNova && mainWindow?.isVisible();
@@ -245,9 +317,9 @@ export async function snip({ hideNova = false } = {}) {
     const captured = await captureDisplay();
     if (!captured) return null;
     const { display, image } = captured;
-    const region = await selectRegion(display, image);
+    const region = await selectRegion(display, image, mode);
     if (!region) return null;
-    if (region === "full") return { image: encode(image), rect: display.bounds };
+    if (region.full) return { image: encode(image), rect: display.bounds, mode: region.mode };
     const scale = image.getSize().width / display.bounds.width;
     const cropped = image.crop({
       x: Math.round(region.x * scale),
@@ -258,6 +330,7 @@ export async function snip({ hideNova = false } = {}) {
     return {
       image: encode(cropped),
       rect: { x: display.bounds.x + region.x, y: display.bounds.y + region.y, width: region.width, height: region.height },
+      mode: region.mode,
     };
   } catch (err) {
     dialog.showErrorBox("Nova couldn't capture the screen", err.message);
@@ -303,7 +376,7 @@ function openPopup(shot) {
   lockDown(popup);
   const win = popup;
   win.webContents.once("did-finish-load", () => {
-    win.webContents.send("popup:init", { thumb: shot.image.dataUrl, hotkey: formatAccelerator(settings.hotkeys.snip) });
+    win.webContents.send("popup:init", { thumb: shot.image.dataUrl, hotkey: formatAccelerator(settings.hotkeys.snip), mode: shot.mode });
     win.show();
   });
   win.on("closed", () => {
@@ -317,7 +390,7 @@ export async function snipAndAnswer() {
   const shot = await snip({ hideNova: !!mainWindow?.isFocused() });
   if (!shot) return;
   openPopup(shot);
-  const payload = { image: shot.image, prompt: "Answer this" };
+  const payload = { image: shot.image, mode: shot.mode };
   if (rendererReady) mainWindow.webContents.send("nova:ask-image", payload);
   else pendingAsks.push(payload);
 }
@@ -375,10 +448,59 @@ const fromMain = (event) => mainWindow && event.sender === mainWindow.webContent
 const fromPopup = (event) => popup && event.sender === popup.webContents;
 
 function setupIpc() {
-  ipcMain.handle("nova:snip", async (event) => {
+  ipcMain.handle("nova:snip", async (event, mode) => {
     if (!fromMain(event)) return null;
-    const shot = await snip({ hideNova: true });
-    return shot ? shot.image : null;
+    const shot = await snip({ hideNova: true, mode: typeof mode === "string" ? mode : "answer" });
+    return shot ? { ...shot.image, mode: shot.mode } : null;
+  });
+  ipcMain.on("nova:resize", (event, height) => {
+    if (!fromMain(event) || !Number.isFinite(height)) return;
+    const bounds = mainWindow.getBounds();
+    const area = screen.getDisplayMatching(bounds).workArea;
+    const h = Math.round(Math.max(64, Math.min(height, area.y + area.height - bounds.y - 8)));
+    if (Math.abs(h - bounds.height) > 1) setBarBounds({ ...bounds, height: h });
+  });
+  ipcMain.on("nova:hide", (event) => {
+    if (fromMain(event)) mainWindow.hide();
+  });
+  ipcMain.on("nova:show", (event) => {
+    if (fromMain(event)) showMain();
+  });
+  ipcMain.on("nova:keep-open", (event, on) => {
+    if (fromMain(event)) keepOpen = !!on;
+  });
+  ipcMain.handle("nova:set-pinned", (event, on) => {
+    if (!fromMain(event)) return false;
+    settings.pinned = !!on;
+    saveSettings();
+    return settings.pinned;
+  });
+  // Electron's clipboard follows the web's async Clipboard API (read, readText, writeText).
+  ipcMain.handle("nova:read-clipboard", async (event) => {
+    if (!fromMain(event)) return null;
+    const text = (await clipboard.readText()) || "";
+    if (text.trim()) return { text: text.slice(0, 50000) };
+    try {
+      for (const item of await clipboard.read()) {
+        const type = item.types.find((t) => t.startsWith("image/"));
+        if (!type) continue;
+        const blob = await item.getType(type);
+        const image = nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer()));
+        if (!image.isEmpty()) return { image: encode(image) };
+      }
+    } catch {
+      // no readable image
+    }
+    return { text: "" };
+  });
+  ipcMain.handle("nova:copy", async (event, text) => {
+    if (!fromMain(event) || typeof text !== "string") return false;
+    await clipboard.writeText(text);
+    return true;
+  });
+  ipcMain.handle("nova:open-app", (event, name) => {
+    if (!fromMain(event) || typeof name !== "string") return { ok: false, error: "Invalid app name." };
+    return openApp(name);
   });
   ipcMain.handle("nova:open-external", async (event, url) => {
     if (!fromMain(event) || typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;
@@ -392,6 +514,7 @@ function setupIpc() {
       defaults: DEFAULT_HOTKEYS,
       labels: { snip: formatAccelerator(settings.hotkeys.snip), toggle: formatAccelerator(settings.hotkeys.toggle) },
       openAtLogin: app.getLoginItemSettings().openAtLogin,
+      pinned: !!settings.pinned,
       canOpenAtLogin: process.platform === "win32" || isMac,
       platform: process.platform,
     };
@@ -408,6 +531,7 @@ function setupIpc() {
       return { errors };
     }
     settings.hotkeys = next;
+    settings.hotkeysCustomized = true;
     saveSettings();
     buildTrayMenu();
     return { errors: {}, labels: { snip: formatAccelerator(next.snip), toggle: formatAccelerator(next.toggle) } };
@@ -435,7 +559,7 @@ function setupIpc() {
     if (fromPopup(event)) popup.destroy();
   });
   ipcMain.on("popup:copy", (event, text) => {
-    if (fromPopup(event) && typeof text === "string") clipboard.writeText(text);
+    if (fromPopup(event) && typeof text === "string") clipboard.writeText(text).catch(() => {});
   });
   ipcMain.on("popup:resize", (event, height) => {
     if (!fromPopup(event) || !Number.isFinite(height)) return;
@@ -496,5 +620,5 @@ app.whenReady().then(async () => {
     });
   }
 
-  if (process.env.NOVA_TEST) globalThis.novaTest = { snip, snipAndAnswer, getPopup: () => popup, getMain: () => mainWindow, hasTray: () => !!tray };
+  if (process.env.NOVA_TEST) globalThis.novaTest = { snip, snipAndAnswer, showMain, getPopup: () => popup, getMain: () => mainWindow, hasTray: () => !!tray };
 });

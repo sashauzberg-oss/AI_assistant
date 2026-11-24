@@ -207,8 +207,8 @@ body.busy .orb { animation: spin 2.4s linear infinite; }
 .card .card-main { min-width: 0; flex: 1; }
 .card .card-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .card-sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
-.card a.card-action {
-  flex: none; font-size: 13px; font-weight: 600; text-decoration: none;
+.card .card-action {
+  flex: none; font-size: 13px; font-weight: 600; text-decoration: none; border: 0; cursor: pointer;
   padding: 6px 12px; border-radius: 8px; background: var(--accent); color: #fff;
 }
 .card.image-card img { max-width: 100%; max-height: 220px; border-radius: 8px; display: block; }
@@ -330,7 +330,7 @@ body.busy .orb { animation: spin 2.4s linear infinite; }
 .row.end { justify-content: flex-end; }
 .btn {
   border: 1px solid var(--border); background: var(--surface-2); border-radius: 10px;
-  padding: 7px 14px; cursor: pointer; font-weight: 600;
+  padding: 7px 14px; cursor: pointer; font-weight: 600; white-space: nowrap; flex: none;
 }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .muted { color: var(--muted); }
@@ -389,3 +389,42 @@ kbd {
 }
 .hotkey { cursor: pointer; font-family: var(--mono); caret-color: transparent; }
 .hotkey.recording { border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.password { font-family: var(--mono); font-size: 15px; letter-spacing: 0.02em; word-break: break-all; }
+.timer.stopwatch.paused b { opacity: 0.6; }
+
+/* ---------- Desktop: the floating bar ---------- */
+html.desktop, body.desktop { background: transparent; }
+body.desktop { overflow: hidden; }
+body.desktop .app {
+  height: auto; max-width: none; margin: 12px; padding: 0;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+body.desktop .topbar { display: none; }
+body.desktop .composer { padding: 0; }
+body.desktop .composer-row {
+  border: 0; box-shadow: none; border-radius: 0; background: transparent;
+  padding: 8px 8px 8px 12px; align-items: center;
+}
+body.desktop #input { font-size: 17px; padding: 10px 6px; max-height: 140px; }
+body.desktop .bar-orb { width: 26px; height: 26px; margin-right: 4px; -webkit-app-region: drag; cursor: grab; }
+body.desktop.offline .bar-orb { filter: grayscale(1) opacity(0.6); }
+body.desktop .attachment { margin: 8px 12px 0; }
+body.desktop .player {
+  margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; box-shadow: none; padding: 6px 12px;
+}
+body.desktop .player-art { width: 34px; height: 34px; border-radius: 8px; }
+body.desktop .timers { padding: 6px 12px; border-top: 1px solid var(--border); }
+body.desktop .timers:empty { display: none; }
+body.desktop .timer { box-shadow: none; }
+.panel { border-top: 1px solid var(--border); }
+.panel-head { display: flex; align-items: center; gap: 2px; padding: 4px 8px 0 14px; font-size: 12px; color: var(--muted); }
+.panel-head .spacer { flex: 1; }
+body.desktop .chat { flex: none; max-height: 440px; overflow-y: auto; padding: 0 14px 12px; scroll-behavior: auto; }
+body.desktop .msg { margin: 10px 0; }
+body.desktop .msg.user .body { max-width: 85%; }
+body.desktop .card { box-shadow: none; }
+body.desktop .settings { max-height: calc(100vh - 24px); overflow: auto; }
+body.desktop .settings::backdrop { background: transparent; }

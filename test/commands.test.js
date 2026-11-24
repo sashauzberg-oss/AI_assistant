@@ -104,3 +104,45 @@ test("instant commands", () => {
   assert.equal(isInstant(parseCommand("play jazz")), false);
   assert.equal(isInstant(parseCommand("answer this")), false);
 });
+
+test("new commands: snip modes, stopwatch, focus, passwords, memory, conversions", () => {
+  assert.deepEqual(parseCommand("answer this"), { name: "answer_screen", args: { mode: "answer" } });
+  assert.equal(parseCommand("translate this").args.mode, "translate");
+  assert.equal(parseCommand("explain this").args.mode, "explain");
+  assert.equal(parseCommand("copy the text from my screen").args.mode, "text");
+  assert.equal(name("copy that"), "copy_last");
+  assert.deepEqual(parseCommand("start stopwatch"), { name: "stopwatch", args: { action: "start" } });
+  assert.equal(parseCommand("stop the stopwatch").args.action, "stop");
+  assert.deepEqual(parseCommand("pomodoro"), { name: "focus", args: { seconds: 1500 } });
+  assert.equal(parseCommand("focus for 50 minutes").args.seconds, 3000);
+  assert.equal(name("play focus music"), "music_play");
+  assert.deepEqual(parseCommand("generate a password"), { name: "password", args: { length: 16, symbols: true } });
+  assert.deepEqual(parseCommand("make a 24 character password without symbols"), { name: "password", args: { length: 24, symbols: false } });
+  assert.equal(name("how do I make my password stronger"), null);
+  assert.deepEqual(parseCommand("remember that my favorite color is green"), { name: "memory_add", args: { text: "my favorite color is green" } });
+  assert.equal(name("what do you remember"), "memory_list");
+  assert.equal(name("forget everything"), "memory_clear");
+  assert.deepEqual(parseCommand("forget my favorite color"), { name: "memory_forget", args: { text: "my favorite color" } });
+  assert.equal(name("note: call the dentist"), "note_add");
+  const km = parseCommand("convert 10 km to miles");
+  assert.equal(km.name, "convert");
+  assert.ok(Math.abs(km.args.result - 6.21371) < 1e-4);
+  assert.deepEqual(parseCommand("$50 to euros").args, { kind: "currency", amount: 50, from: "USD", to: "EUR" });
+  assert.equal(parseCommand("what is 0 c in f").args.result, 32);
+  for (const cmd of ["copy that", "start stopwatch", "pomodoro", "generate a password", "10 km to miles"]) {
+    assert.equal(isInstant(parseCommand(cmd)), true, cmd);
+  }
+  assert.equal(isInstant(parseCommand("remember that I like tea")), false);
+});
+
+test("password generator", async () => {
+  const { generatePassword } = await import("../public/js/extras.js");
+  const pw = generatePassword({ length: 20 });
+  assert.equal(pw.length, 20);
+  assert.match(pw, /[a-z]/);
+  assert.match(pw, /[A-Z]/);
+  assert.match(pw, /[0-9]/);
+  assert.match(pw, /[!@#$%^&*\-_=+?]/);
+  assert.doesNotMatch(generatePassword({ length: 30, symbols: false }), /[^A-Za-z0-9]/);
+  assert.notEqual(generatePassword(), generatePassword());
+});

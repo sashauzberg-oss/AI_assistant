@@ -10,7 +10,10 @@ function fit() {
   });
 }
 
-window.popup.onInit(({ thumb, hotkey }) => {
+const STATUS = { answer: "Reading your snip…", text: "Copying the text…", translate: "Translating…", explain: "Taking a look…" };
+
+window.popup.onInit(({ thumb, hotkey, mode }) => {
+  $("status-text").textContent = STATUS[mode] || STATUS.answer;
   $("thumb").onload = fit;
   $("thumb").src = thumb;
   $("footer").textContent = `Snip again anytime: ${hotkey}`;
@@ -27,6 +30,9 @@ window.popup.onUpdate((update) => {
     if (update.html) $("status").hidden = true;
   }
   if (update.text !== undefined) plainText = update.text;
+  if (update.copied) {
+    $("copied").hidden = false;
+  }
   if (update.error) {
     $("error").hidden = false;
     $("error").textContent = update.error;

@@ -40,12 +40,34 @@ const state = {
   speak: storage.get("speak", false),
   speakWhenSpoken: storage.get("speakWhenSpoken", true),
   theme: storage.get("theme", "system"),
+  lastAnswer: "",
+  lastActivity: Date.now(),
 };
 
 // Set when running inside the Nova desktop app (see desktop/preload.cjs).
 const desktop = window.novaDesktop || null;
 let desktopSettings = null;
-if (desktop) document.body.classList.add("desktop");
+let windowVisible = true; // desktop: whether the Nova bar is on screen
+if (desktop) {
+  document.documentElement.classList.add("desktop");
+  document.body.classList.add("desktop");
+}
+
+// What each snip mode asks the AI, and how it reads in the chat.
+const LANGUAGE = (() => {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of((navigator.language || "en").split("-")[0]) || "English";
+  } catch {
+    return "English";
+  }
+})();
+const SNIP_LABELS = { answer: "Answer this", text: "Copy the text from this", translate: "Translate this", explain: "Explain this" };
+const SNIP_INSTRUCTIONS = {
+  answer: "Answer the question in this screenshot.",
+  text: "Transcribe all the text in this screenshot exactly as written, keeping the line breaks. Reply with only the text, without any introduction or comments.",
+  translate: `Translate the text in this screenshot into ${LANGUAGE} (if it's already in ${LANGUAGE}, translate it into English). Reply with only the translation.`,
+  explain: "Explain what this screenshot shows, simply and briefly.",
+};
 
 const player = new MusicPlayer();
 new PlayerView(player, $("#player"));
@@ -176,6 +198,10 @@ function addAssistantMessage() {
 }
 
 function showWelcome() {
+  if (desktop) {
+    ui.chat.replaceChildren(); // the desktop bar starts as just the typing bar
+    return;
+  }
   const chips = ["music", "answer this", "play some jazz", "weather", "timer 5 minutes", "tell me a joke", "what can you do?"];
   ui.chat.replaceChildren(
     el("div", { class: "welcome" }, [
@@ -212,6 +238,12 @@ function speakIfWanted(text, source) {
 // ---------------------------------------------------------------- status & settings
 
 function renderStatus() {
+  document.body.classList.toggle("offline", !state.ai);
+  if (desktop) {
+    ui.input.placeholder = state.ai
+      ? `Ask Nova anything…${desktopSettings?.labels.snip ? `  (${desktopSettings.labels.snip} snips)` : ""}`
+      : "Offline: add an API key in ⚙ to ask anything";
+  }
   ui.status.textContent = state.ai ? "AI ready" : "Offline mode";
   ui.status.className = `pill ${state.ai ? "ok" : "off"}`;
   ui.status.title = state.ai ? "Connected to Claude" : "Add an API key in Settings to unlock the AI";
@@ -234,12 +266,18 @@ async function refreshStatus() {
 const settingsOpenHooks = [];
 function openSettings() {
   settingsOpenHooks.forEach((hook) => hook());
+  $("#settings-city").value = storage.get("homeCity", "");
+  renderMemoryCount();
   $("#settings-speak").checked = state.speak;
   $("#settings-speak-voice").checked = state.speakWhenSpoken;
   $("#settings-key-msg").textContent = "";
   $("#settings-key").disabled = !state.canConfigure;
   $("#settings-save-key").disabled = !state.canConfigure;
   if (!state.canConfigure) $("#settings-key-msg").textContent = "The key can only be changed on the computer running Nova.";
+  if (desktop) {
+    desktop.keepOpen(true);
+    desktop.resize(780); // make room for the dialog
+  }
   ui.settings.showModal();
 }
 
@@ -288,6 +326,24 @@ $("#settings-speak-voice").addEventListener("change", (e) => {
   storage.set("speakWhenSpoken", e.target.checked);
 });
 $("#settings-theme").addEventListener("change", (e) => setTheme(e.target.value));
+$("#settings-city").addEventListener("change", (e) => storage.set("homeCity", e.target.value.trim()));
+function renderMemoryCount() {
+  const count = storage.get("memories", []).length;
+  $("#settings-memories").textContent = count
+    ? `Nova remembers ${count} thing${count === 1 ? "" : "s"} about you. Say “what do you remember” to see them.`
+    : "Nova hasn't been asked to remember anything yet. Say “remember that …”.";
+  $("#settings-clear-memories").hidden = !count;
+}
+$("#settings-clear-memories").addEventListener("click", () => {
+  storage.set("memories", []);
+  renderMemoryCount();
+});
+ui.settings.addEventListener("close", () => {
+  if (!desktop) return;
+  desktop.keepOpen(false);
+  fitBar();
+  ui.input.focus();
+});
 
 // ---------------------------------------------------------------- attachments & screen capture
 
@@ -309,7 +365,14 @@ async function attachFile(file) {
   }
 }
 
-ui.attach.addEventListener("click", () => ui.file.click());
+ui.attach.addEventListener("click", () => {
+  desktop?.keepOpen(true); // the file dialog takes focus; don't hide the bar
+  ui.file.click();
+});
+ui.file.addEventListener("cancel", () => desktop?.keepOpen(false));
+window.addEventListener("focus", () => {
+  if (!ui.settings.open) desktop?.keepOpen(false);
+});
 ui.file.addEventListener("change", () => {
   attachFile(ui.file.files[0]);
   ui.file.value = "";
@@ -360,8 +423,8 @@ function captureError(err) {
  * - Otherwise the browser's picker must open from a click, so when we're not inside one
  *   (voice, or the AI asking mid-answer), show a button for the user to press.
  */
-async function captureScreen({ interactive, ui: msg, fromTool = false } = {}) {
-  if (desktop) return desktop.snip(); // native snipping overlay, no share picker needed
+async function captureScreen({ interactive, ui: msg, fromTool = false, mode } = {}) {
+  if (desktop) return desktop.snip(mode); // native snipping overlay, no share picker needed (result includes the mode)
   const crop = interactive ?? !document.hidden;
   if (snipper.linked) return snipper.capture({ interactive: crop });
   if (fromTool || !navigator.userActivation?.isActive) {
@@ -399,6 +462,11 @@ async function captureScreen({ interactive, ui: msg, fromTool = false } = {}) {
 ui.snip.addEventListener("click", async () => {
   try {
     const image = desktop ? await desktop.snip() : await snipper.capture({ interactive: true });
+    if (image?.mode && image.mode !== "answer") {
+      // Copy text / Translate / Explain picked in the snip toolbar: run it right away.
+      await askAboutSnip(image, image.mode, "text");
+      return;
+    }
     if (image) {
       setAttachment(image);
       ui.input.focus();
@@ -479,6 +547,12 @@ if (!voice.supported || desktop) {
 // ---------------------------------------------------------------- timers
 
 timers.addEventListener("done", (e) => {
+  if (e.detail.kind === "focus") {
+    if (player.status === "playing") player.pause();
+    systemNote("🍅 Focus session done! Take a 5-minute break. Say **pomodoro** when you're ready for another round.");
+    voice.speak("Focus session done. Time for a break!");
+    return;
+  }
   const text = `⏰ Time's up: **${e.detail.label}**`;
   systemNote(text);
   voice.speak(`Time's up: ${e.detail.label}`);
@@ -486,7 +560,7 @@ timers.addEventListener("done", (e) => {
 
 // ---------------------------------------------------------------- tools
 
-const toolbox = createToolbox({ player, timers, voice, captureScreen, setTheme, units });
+const toolbox = createToolbox({ player, timers, voice, captureScreen, setTheme, units, getLastAnswer: () => state.lastAnswer });
 
 // ---------------------------------------------------------------- sending
 
@@ -578,7 +652,10 @@ async function runAI(text, image, source, mirror = null) {
     msg.addSources(sources);
     msg.done();
     mirror?.({ text: msg.text, done: true });
+    if (!result.refused) state.lastAnswer = msg.text;
     speakIfWanted(msg.text, source);
+    if (desktop && !windowVisible && source !== "hotkey") notifyAnswer(msg.text);
+    return result.refused ? null : msg.text;
   } catch (err) {
     msg.done();
     mirror?.({ error: err.name === "AbortError" ? "Stopped." : err.message, done: true });
@@ -592,9 +669,43 @@ async function runAI(text, image, source, mirror = null) {
     } else {
       msg.error(err.message);
     }
+    return null;
   } finally {
     state.abort = null;
     setBusy(false);
+  }
+}
+
+/** Desktop: the bar was put away while Nova was answering, so tell the user it's ready. */
+function notifyAnswer(text) {
+  try {
+    const note = new Notification("Nova answered", { body: text.replace(/[*_`#>]/g, "").slice(0, 160) });
+    note.onclick = () => desktop.show();
+  } catch {
+    // notifications unavailable
+  }
+}
+
+/** Send a snip to the AI in one of the snip modes; "Copy text" puts the result on the clipboard. */
+async function askAboutSnip(image, mode, source, { label, mirror } = {}) {
+  ui.chat.querySelector(".welcome")?.remove();
+  addUserMessage(label || SNIP_LABELS[mode] || SNIP_LABELS.answer, image, source);
+  if (!state.ai) {
+    const text = "To read snips I need my AI brain. Open settings (⚙) and paste an Anthropic API key.";
+    mirror?.({ text, done: true });
+    await runOffline("answer this", image, source);
+    return;
+  }
+  const answer = await runAI(SNIP_INSTRUCTIONS[mode] || SNIP_INSTRUCTIONS.answer, image, source, mirror);
+  if (answer && mode === "text") {
+    try {
+      if (desktop) await desktop.copy(answer);
+      else await navigator.clipboard.writeText(answer);
+      mirror?.({ copied: true });
+      systemNote("📋 Copied the text to your clipboard.");
+    } catch {
+      systemNote("Couldn't copy automatically. Say **copy that** to copy it.");
+    }
   }
 }
 
@@ -617,6 +728,7 @@ async function runOffline(text, image, source, command = parseCommand(text)) {
   }
   if (reply) msg.setText(reply);
   msg.done();
+  if (reply && command?.name !== "copy_last") state.lastAnswer = reply;
   speakIfWanted(reply, source);
 }
 
@@ -626,6 +738,7 @@ async function submit(rawText, source = "text") {
   if (!text && !image) return;
 
   const command = text ? parseCommand(text) : null;
+  state.lastActivity = Date.now();
 
   // Music controls etc. work instantly, even while the AI is busy answering.
   if (state.busy && !isInstant(command)) {
@@ -648,19 +761,24 @@ async function submit(rawText, source = "text") {
   // "answer this": grab the screen first (this runs inside the key press or click, so the
   // browser allows the share picker), then send the picture with the question.
   if (command?.name === "answer_screen" && !image && state.ai) {
-    const userBody = addUserMessage(text, null, source);
+    let shot;
     try {
-      image = await captureScreen({ interactive: source !== "voice" && !document.hidden });
+      shot = await captureScreen({ interactive: source !== "voice" && !document.hidden, mode: command.args?.mode });
     } catch (err) {
       systemNote(captureError(err));
       return;
     }
-    if (!image) {
+    if (!shot) {
       systemNote("No screenshot taken. Try again, or paste one with Ctrl+V.");
       return;
     }
-    userBody.prepend(el("img", { src: image.dataUrl, alt: "Screenshot" }));
-    await runAI(text, image, source);
+    const mode = shot.mode || command.args?.mode || "answer";
+    if (mode === "text" || mode !== (command.args?.mode || "answer")) {
+      await askAboutSnip(shot, mode, source, { label: text });
+    } else {
+      addUserMessage(text, shot, source);
+      await runAI(text, shot, source);
+    }
     return;
   }
 
@@ -808,19 +926,107 @@ function setupDesktop() {
 
   // The global hotkey: the desktop app sends the snip here; the answer streams into the
   // chat and into the bubble next to the snip.
-  desktop.onAskImage(async ({ image, prompt }) => {
+  desktop.onAskImage(async ({ image, mode = "answer" }) => {
     for (let i = 0; i < 600 && state.busy; i++) await sleep(100); // let a running answer finish first
-    ui.chat.querySelector(".welcome")?.remove();
-    addUserMessage(prompt, image, "hotkey");
-    const mirror = createMirror(desktop.popupUpdate);
-    if (!state.ai) {
-      const text = "To answer questions I need my AI brain. Click **Open in Nova**, then paste an Anthropic API key in Settings.";
-      mirror({ text, done: true });
-      await runOffline(prompt, image, "hotkey");
-      return;
-    }
-    await runAI(prompt, image, "hotkey", mirror);
+    state.lastActivity = Date.now();
+    await askAboutSnip(image, mode, "hotkey", { mirror: createMirror(desktop.popupUpdate) });
   });
+}
+
+// ---------------------------------------------------------------- desktop: the floating bar
+
+let panel = null;
+let panelOpen = false;
+
+/** Rearrange the page into a Spotlight-style bar: input on top, everything else below it. */
+function setupBar() {
+  const appEl = $(".app");
+  const row = ui.form.querySelector(".composer-row");
+  const pin = el("button", { class: "icon-btn", type: "button", "data-icon": "pin", "aria-pressed": String(!!desktopSettings.pinned) });
+  const renderPin = () => {
+    const on = pin.getAttribute("aria-pressed") === "true";
+    pin.title = on ? "Pinned: Nova stays open when you click elsewhere" : "Pin Nova so it stays open when you click elsewhere";
+  };
+  pin.addEventListener("click", async () => {
+    const on = await desktop.setPinned(pin.getAttribute("aria-pressed") !== "true");
+    pin.setAttribute("aria-pressed", String(on));
+    renderPin();
+  });
+  renderPin();
+  row.prepend(el("span", { class: "orb bar-orb", title: "Drag to move Nova", "aria-hidden": "true" }));
+  row.append(pin, $("#btn-settings"));
+
+  const collapse = el("button", { class: "icon-btn small", type: "button", "data-icon": "chevron-up", title: "Hide the conversation" });
+  collapse.addEventListener("click", () => {
+    panelOpen = false;
+    renderPanel();
+    ui.input.focus();
+  });
+  ui.speakBtn.classList.add("small");
+  $("#btn-new").classList.add("small");
+  panel = el("section", { class: "panel", hidden: true }, [
+    el("div", { class: "panel-head" }, [el("span", { text: "Conversation" }), el("span", { class: "spacer" }), ui.speakBtn, $("#btn-new"), collapse]),
+    ui.chat,
+  ]);
+  const expand = el("button", { class: "icon-btn", type: "button", "data-icon": "chevron-down", title: "Show the conversation", hidden: true });
+  expand.addEventListener("click", () => {
+    panelOpen = true;
+    renderPanel();
+  });
+  row.insertBefore(expand, pin);
+  panel.expandButton = expand;
+
+  appEl.replaceChildren(ui.form, $("#player"), $("#timers"), panel);
+  applyIcons(appEl);
+  setSpeak(state.speak); // re-draw its icon after moving it
+
+  // A new message opens the conversation panel.
+  new MutationObserver(() => {
+    if (ui.chat.querySelector(".msg")) panelOpen = true;
+    renderPanel();
+  }).observe(ui.chat, { childList: true });
+
+  // The window grows and shrinks with the content.
+  new ResizeObserver(() => fitBar()).observe(appEl);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || ui.settings.open || e.defaultPrevented) return;
+    if (ui.input.value) {
+      ui.input.value = "";
+      autoGrow();
+    } else {
+      desktop.hide();
+    }
+  });
+  desktop.onShown(() => {
+    // Coming back after a while: start from just the bar (the conversation is one click away).
+    if (Date.now() - state.lastActivity > 5 * 60 * 1000 && !state.busy) {
+      panelOpen = false;
+      renderPanel();
+    }
+    ui.input.focus();
+    ui.input.select();
+    fitBar();
+  });
+  desktop.onVisibility((visible) => (windowVisible = visible));
+  timers.isHidden = () => !windowVisible;
+  renderPanel();
+}
+
+function renderPanel() {
+  if (!panel) return;
+  const hasMessages = !!ui.chat.querySelector(".msg");
+  panel.hidden = !(panelOpen && hasMessages);
+  panel.expandButton.hidden = !hasMessages || !panel.hidden;
+  if (!panel.hidden) ui.chat.scrollTop = ui.chat.scrollHeight;
+  fitBar();
+}
+
+function fitBar() {
+  if (!desktop || ui.settings.open) return;
+  const appEl = $(".app");
+  const margin = 24; // the transparent space around the bar for its shadow
+  desktop.resize(Math.ceil(appEl.getBoundingClientRect().height) + margin);
 }
 
 // ---------------------------------------------------------------- start
@@ -832,6 +1038,8 @@ await refreshStatus();
 if (desktop) {
   desktopSettings = await desktop.getSettings();
   setupDesktop();
+  setupBar();
+  renderStatus();
 }
 showWelcome();
 ui.input.focus();

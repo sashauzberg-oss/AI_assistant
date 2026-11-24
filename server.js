@@ -140,6 +140,16 @@ export async function startServer({
   app.get("/api/wiki", route((req) => (text(req.query.q) ? services.wiki(text(req.query.q)) : { error: "Nothing to look up." })));
   app.get("/api/define", route((req) => (text(req.query.word, 60) ? services.define(text(req.query.word, 60)) : { error: "No word given." })));
   app.get("/api/music/songs", route((req) => (text(req.query.q) ? services.songs(text(req.query.q)) : { tracks: [] })));
+  app.get(
+    "/api/currency",
+    route((req) =>
+      services.currency({
+        amount: Number.isFinite(Number(req.query.amount)) ? Number(req.query.amount) : 1,
+        from: text(req.query.from, 3).toUpperCase(),
+        to: text(req.query.to, 3).toUpperCase(),
+      }),
+    ),
+  );
   app.get("/api/music/radio", route((req) => (text(req.query.q) ? services.radio(text(req.query.q, 80)) : { stations: [] })));
 
   const server = http.createServer(app);

@@ -51,6 +51,7 @@
     #answer a { color: var(--accent); }
     .copy-code { position: absolute; top: 5px; right: 5px; font-size: 11px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); border-radius: 6px; cursor: pointer; }
     #error { color: var(--danger); }
+    #copied { color: #059669; font-size: 13px; margin-top: 6px; font-weight: 600; }
     footer { color: var(--muted); font-size: 11px; margin-top: 10px; }
   </style>
 </head>
@@ -67,6 +68,7 @@
     <div id="status"><span class="dots"><i></i><i></i><i></i></span><span id="status-text">Reading your snip…</span></div>
     <div id="answer"></div>
     <div id="error" hidden></div>
+    <div id="copied" hidden>✓ Copied to your clipboard</div>
     <footer id="footer"></footer>
   </div>
   <script src="popup.js"></script>

@@ -1,6 +1,8 @@
 // Talks to the server's /api/chat endpoint (one Claude call per request, streamed as
 // server-sent events) and runs the tool loop here in the browser, where the tools live.
 
+import { storage } from "./util.js";
+
 export class NoKeyError extends Error {}
 
 function clientContext() {
@@ -8,6 +10,9 @@ function clientContext() {
     date: new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     locale: navigator.language,
+    homeCity: storage.get("homeCity", ""),
+    memories: storage.get("memories", []).map((m) => m.text),
+    desktop: !!window.novaDesktop,
   };
 }
 

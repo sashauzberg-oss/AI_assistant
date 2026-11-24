@@ -91,11 +91,11 @@ after(() => {
   mock?.close();
 });
 
-async function chat(content) {
+async function chat(content, extraContext = {}) {
   const res = await fetch(`${appUrl}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: [{ role: "user", content }], context: { date: "Tuesday, November 24, 2026", timezone: "Europe/Berlin", locale: "en-US" } }),
+    body: JSON.stringify({ messages: [{ role: "user", content }], context: { date: "Tuesday, November 24, 2026", timezone: "Europe/Berlin", locale: "en-US", ...extraContext } }),
   });
   assert.equal(res.status, 200);
   const text = await res.text();
@@ -156,4 +156,31 @@ test("drops the declined model's thinking and tool calls after a fallback", asyn
 test("rejects an empty conversation", async () => {
   const res = await fetch(`${appUrl}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   assert.equal(res.status, 400);
+});
+
+test("desktop requests get the open_app tool, browser requests don't", async () => {
+  await chat("music");
+  assert.ok(!requests.at(-1).body.tools.some((t) => t.name === "open_app"));
+  await chat("music", { desktop: true });
+  assert.ok(requests.at(-1).body.tools.some((t) => t.name === "open_app"));
+});
+
+test("memories and home city are added to the system prompt", async () => {
+  await chat("music", { memories: ["My name is Sam", 42, "I like jazz"], homeCity: "Chicago" });
+  const extra = requests.at(-1).body.system.at(-1).text;
+  assert.match(extra, /1\. My name is Sam\n2\. I like jazz/);
+  assert.match(extra, /home city: Chicago/);
+});
+
+test("refuses requests addressed to another host name (DNS rebinding)", async () => {
+  // fetch() won't send a custom Host header, so use a raw request.
+  const status = await new Promise((resolve, reject) => {
+    const req = http.request(`${appUrl}/api/status`, { headers: { Host: "evil.example" } }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+  assert.equal(status, 403);
 });

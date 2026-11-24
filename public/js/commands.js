@@ -2,6 +2,7 @@
 // Used for instant actions ("music", "stop", "next") and as the whole brain in offline mode.
 // Pure functions only (no DOM), so it can be unit-tested in Node.
 import { looksLikeMath } from "./calc.js";
+import { parseConversion } from "./extras.js";
 
 const WORD_NUMBERS = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -139,7 +140,14 @@ export function parseCommand(input) {
 
   if (/^(help|commands|what can you do|what can i say|\?)$/.test(s)) return { name: "help" };
   if (/^(clear|clear (the )?chat|new chat|start over|reset)$/.test(s)) return { name: "clear" };
-  if (SCREEN_RE.test(s)) return { name: "answer_screen" };
+  if (/\b(copy|grab|extract|get|read) (the |all the )?text (from|on|off) (my |the |this )?(screen|window|page|image)\b|^(copy|extract) text$/.test(s)) {
+    return { name: "answer_screen", args: { mode: "text" } };
+  }
+  if (SCREEN_RE.test(s)) {
+    const mode = /^translate|\btranslate (this|that|it)\b/.test(s) ? "translate" : /\b(explain|summari[sz]e)\b|what('s| is) (this|on my screen)/.test(s) ? "explain" : "answer";
+    return { name: "answer_screen", args: { mode } };
+  }
+  if (/^copy (that|it|this|the answer|your answer|the last answer|the reply)$/.test(s)) return { name: "copy_last" };
 
   // ----- music controls -----
   if (/^(stop|stop (the )?music|stop playing|stop the radio|silence|shut up|be quiet|quiet|turn (it|the music) off|music off)$/.test(s)) {
@@ -167,6 +175,28 @@ export function parseCommand(input) {
   if ((m = s.match(/^(?:play|watch|search|find|show me|put on)?\s*(.+?) on youtube$/)) || (m = s.match(/^youtube\s+(.+)$/))) {
     return { name: "youtube", args: { query: m[1] } };
   }
+
+  // ----- stopwatch & focus sessions -----
+  if (/^(start|begin|run)( a| the)? stopwatch$|^stopwatch$/.test(s)) return { name: "stopwatch", args: { action: "start" } };
+  if (/^(stop|pause|end|check)( the)? stopwatch$/.test(s)) return { name: "stopwatch", args: { action: "stop" } };
+  if (/^(reset|clear|cancel)( the)? stopwatch$/.test(s)) return { name: "stopwatch", args: { action: "reset" } };
+  if ((m = s.match(/^(?:start (?:a |an )?|begin (?:a )?)?(?:focus|pomodoro|study|deep work)(?: mode| session| timer)?(?: (?:for|of) (.+))?$/))) {
+    return { name: "focus", args: { seconds: (m[1] && parseDuration(m[1])) || 25 * 60 } };
+  }
+
+  // ----- passwords -----
+  if (/^(generate|make|create|give me|suggest|i need)( me)? (a |an )?((new|strong|secure|random|good|long|short|\d+[- ]?(char|character|letter)s?( long)?)[ -]+)*password( with(out)? (symbols|special characters))?$|^(new |random )?password$/.test(s)) {
+    const len = s.match(/(\d{1,3})(?:[- ]?(?:char|character|letter|digit)s?)?/);
+    return { name: "password", args: { length: len ? Number(len[1]) : 16, symbols: !/\b(no|without) (symbols|special)/.test(s) } };
+  }
+
+  // ----- memory -----
+  if ((m = String(input).trim().match(/^(?:(?:hey )?nova[,\s]+)?remember(?: that)?[:,\s]+(.+)$/i))) {
+    return { name: "memory_add", args: { text: m[1].trim().replace(/[.!]+$/, "") } };
+  }
+  if (/^(what do you remember|what do you know about me|(show|list) (your |my )?memor(y|ies)|memories)$/.test(s)) return { name: "memory_list" };
+  if (/^forget (everything|all|all memories|everything you know about me)$/.test(s)) return { name: "memory_clear" };
+  if ((m = s.match(/^forget (?:that |about )?(.+)$/))) return { name: "memory_forget", args: { text: m[1] } };
 
   // ----- timers & alarms -----
   if (/^(cancel|stop|clear|delete) (all )?(the |my )?(timers?|alarms?|reminders?)$/.test(s)) return { name: "cancel_timers" };
@@ -232,7 +262,7 @@ export function parseCommand(input) {
   if ((m = s.match(/^(?:add|put) (.+?) (?:to|on) (?:my |the )?(?:list|notes|to-?do(?: list)?|shopping list|grocery list)$/))) {
     return { name: "note_add", args: { text: m[1] } };
   }
-  if ((m = String(input).trim().match(/^(?:(?:take|make|write) (?:a )?note|note|remember|remember that|jot down)[:\s,]+(.+)$/i))) {
+  if ((m = String(input).trim().match(/^(?:(?:take|make|write) (?:a )?note|note|jot down)[:\s,]+(.+)$/i))) {
     return { name: "note_add", args: { text: m[1].trim() } };
   }
   if (/^(clear|delete|erase) (all )?(my |the )?(notes|list|to-?do list)$/.test(s)) return { name: "note_clear" };
@@ -261,6 +291,10 @@ export function parseCommand(input) {
     return { name: "define", args: { word: m[1] } };
   }
 
+  // ----- unit & currency conversion -----
+  const conversion = parseConversion(s);
+  if (conversion) return { name: "convert", args: conversion };
+
   // ----- math -----
   const mathText = s.replace(/^(what('s| is)|calculate|calc|compute|solve|how much is|evaluate)\s+/, "").replace(/=\s*$/, "");
   if (looksLikeMath(mathText)) return { name: "calc", args: { expression: mathText } };
@@ -283,6 +317,7 @@ export function parseCommand(input) {
 /** Commands that run instantly in the browser even when the AI is available. */
 export function isInstant(command) {
   if (!command) return false;
-  if (["music_control", "help", "clear", "theme", "cancel_timers", "list_timers"].includes(command.name)) return true;
+  const instant = ["music_control", "help", "clear", "theme", "cancel_timers", "list_timers", "copy_last", "stopwatch", "focus", "password", "convert"];
+  if (instant.includes(command.name)) return true;
   return command.name === "music_play" && command.args.query === "";
 }

@@ -1,9 +1,18 @@
 // Everything Nova can *do*. The AI calls these as tools, and the offline command
 // handler calls the same functions, so both modes behave the same way.
-import { el, getJson, isHttpUrl, storage, describeDuration } from "./util.js";
+import { el, getJson, isHttpUrl, storage, describeDuration, formatClock } from "./util.js";
 import { icon } from "./icons.js";
 import { calculate, formatNumber } from "./calc.js";
 import { secondsUntil } from "./commands.js";
+import { generatePassword } from "./extras.js";
+import { imageFromFile } from "./screen.js";
+
+/** Facts the user asked Nova to remember; sent to the AI with every request. */
+export const memories = {
+  all: () => storage.get("memories", []),
+  texts: () => storage.get("memories", []).map((m) => m.text),
+  save: (list) => storage.set("memories", list),
+};
 
 const JOKES = [
   "Why don't scientists trust atoms? Because they make up everything.",
@@ -43,10 +52,16 @@ const HELP = `Here's what I can do. Just type or say it:
 - **Timers & alarms**: “timer 10 minutes”, “remind me in 20 minutes to stretch”, “alarm at 7:30 am”
 - **Weather**: “weather”, “weather in Tokyo”
 - **Look things up**: “who is Ada Lovelace”, “define serendipity”, “what's 15% of 80”
+- **Snip modes**: “copy the text from my screen”, “translate this”, “explain this”
+- **Clipboard**: “summarize my clipboard”, “fix the grammar in what I copied”, “copy that” (copies my last answer)
+- **Memory**: “remember that my name is Sam”, “what do you remember”, “forget my name”
+- **Convert**: “10 km to miles”, “350 f to c”, “$50 to euros”, “how many ounces in a pound”
+- **Focus**: “pomodoro”, “focus for 50 minutes” (timer plus focus music), “start stopwatch”
+- **Passwords**: “generate a password”, “make a 24 character password”
 - **Notes**: “note buy milk”, “show my notes”, “delete note 2”
-- **Web**: “open YouTube”, “search best pizza near me”, “cat videos on YouTube”
+- **Web & apps**: “open YouTube”, “search best pizza near me”, “cat videos on YouTube”, and in the desktop app “open Spotify” or “open calculator”
 - **Fun**: “tell me a joke”, “flip a coin”, “roll a dice”
-- **Hands-free**: turn on the 📡 button and say “Nova, …”`;
+- **Hands-free** (browser): turn on the 📡 button and say “Nova, …”`;
 
 // ---------- input validation (tool inputs come from the model; check them before acting) ----------
 
@@ -60,6 +75,8 @@ function validate(input, spec) {
     }
     if (rule.type === "string" && typeof value !== "string") return `"${key}" must be a string.`;
     if (rule.type === "integer" && !Number.isInteger(value)) return `"${key}" must be a whole number.`;
+    if (rule.type === "number" && !Number.isFinite(value)) return `"${key}" must be a number.`;
+    if (rule.type === "boolean" && typeof value !== "boolean") return `"${key}" must be true or false.`;
     if (rule.enum && !rule.enum.includes(value)) return `"${key}" must be one of: ${rule.enum.join(", ")}.`;
     if (rule.min !== undefined && value < rule.min) return `"${key}" must be at least ${rule.min}.`;
     if (rule.max !== undefined && value > rule.max) return `"${key}" must be at most ${rule.max}.`;
@@ -86,6 +103,15 @@ const SPECS = {
   },
   copy_to_clipboard: { text: { type: "string", required: true } },
   set_theme: { theme: { type: "string", required: true, enum: ["light", "dark", "system"] } },
+  read_clipboard: {},
+  memory: {
+    action: { type: "string", required: true, enum: ["add", "remove", "list"] },
+    text: { type: "string" },
+    index: { type: "integer", min: 1 },
+  },
+  convert_currency: { amount: { type: "number", required: true }, from: { type: "string", required: true }, to: { type: "string", required: true } },
+  generate_password: { length: { type: "integer", min: 8, max: 128 }, symbols: { type: "boolean" } },
+  open_app: { name: { type: "string", required: true } },
 };
 
 // ---------- cards ----------
@@ -149,7 +175,8 @@ function linkCard(url, title, sub) {
 
 // ---------- the toolbox ----------
 
-export function createToolbox({ player, timers, voice, captureScreen, setTheme, units }) {
+export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, getLastAnswer = () => "" }) {
+  const desktop = window.novaDesktop || null;
   const notes = {
     all: () => storage.get("notes", []),
     save: (list) => storage.set("notes", list),
@@ -168,7 +195,8 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
 
   async function weather(location) {
     const params = new URLSearchParams({ units: units() });
-    if (location) params.set("q", location);
+    const place = location || storage.get("homeCity", "");
+    if (place) params.set("q", place);
     else {
       const { lat, lon } = await locate();
       params.set("lat", lat.toFixed(3));
@@ -244,6 +272,88 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
       ui.addCard(node);
       return { content: "The browser needs a click to copy; a Copy button is shown to the user.", reply: "Click **Copy** to put it on your clipboard:" };
     }
+  }
+
+  async function writeClipboard(text) {
+    if (desktop) return desktop.copy(text);
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  async function readClipboard() {
+    if (desktop) return desktop.readClipboard();
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((t) => t.startsWith("image/"));
+        if (type) return { image: await imageFromFile(await item.getType(type)) };
+      }
+    } catch {
+      // fall back to text
+    }
+    return { text: await navigator.clipboard.readText() };
+  }
+
+  function passwordCard(password) {
+    const value = el("code", { class: "password", text: password });
+    const copy = el("button", { class: "card-action", type: "button", text: "Copy" });
+    copy.addEventListener("click", async () => {
+      await writeClipboard(value.textContent);
+      copy.textContent = "Copied!";
+      setTimeout(() => (copy.textContent = "Copy"), 1500);
+    });
+    const again = el("button", { class: "btn", type: "button", text: "New" });
+    again.addEventListener("click", () => (value.textContent = generatePassword({ length: password.length, symbols: /[^A-Za-z0-9]/.test(password) })));
+    return el("div", { class: "card" }, [el("div", { class: "card-icon", text: "🔑" }), el("div", { class: "card-main" }, [value]), again, copy]);
+  }
+
+  async function convertCurrency(amount, from, to) {
+    const params = new URLSearchParams({ amount: String(amount), from: from.toUpperCase(), to: to.toUpperCase() });
+    const data = await getJson(`/api/currency?${params}`);
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  const money = (value, code) => {
+    try {
+      return new Intl.NumberFormat(undefined, { style: "currency", currency: code }).format(value);
+    } catch {
+      return `${formatNumber(value)} ${code}`;
+    }
+  };
+
+  function memoryAction({ action, text, index }) {
+    const list = memories.all();
+    if (action === "add") {
+      if (!text?.trim()) return { content: "Nothing to remember.", isError: true };
+      list.push({ text: text.trim().slice(0, 300), at: Date.now() });
+      memories.save(list.slice(-50));
+      return { content: `Saved memory #${list.length}: ${text.trim()}`, reply: `🧠 Got it, I'll remember that ${text.trim()}.` };
+    }
+    if (action === "remove") {
+      if (!index || index > list.length) return { content: `There is no memory #${index}.`, isError: true };
+      const [removed] = list.splice(index - 1, 1);
+      memories.save(list);
+      return { content: `Forgot: ${removed.text}`, reply: `Forgotten: “${removed.text}”.` };
+    }
+    return {
+      content: list.length ? list.map((m, i) => `${i + 1}. ${m.text}`).join("\n") : "No memories saved.",
+      reply: list.length ? `Here's what I remember:\n\n${list.map((m) => `- ${m.text}`).join("\n")}` : "I haven't been asked to remember anything yet. Try “remember that …”.",
+    };
+  }
+
+  function startFocus(seconds, ui) {
+    timers.add({ seconds, label: "Focus", kind: "focus" });
+    ui.addCard(card({ iconHtml: "🍅", title: "Focus session", sub: `${describeDuration(seconds)} · focus music on · I'll chime when it's break time` }));
+    player.play("focus").then((r) => r.ok && player.current && ui.addCard(musicCard(player.current, r.blocked)));
+    return `🍅 Focus session started: **${describeDuration(seconds)}**. Put your phone away, I've got the music.`;
+  }
+
+  async function openApp(name, ui) {
+    if (!desktop) return { content: "Opening apps only works in the Nova desktop app.", isError: true };
+    const result = await desktop.openApp(name);
+    if (!result?.ok) return { content: result?.error || `Couldn't open ${name}.`, isError: true };
+    ui.addCard(card({ iconHtml: "🚀", title: result.name, sub: "Opened on your computer" }));
+    return { content: `Opened ${result.name}.`, reply: `🚀 Opened **${result.name}**.` };
   }
 
   const tools = {
@@ -336,6 +446,46 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
       setTheme(theme);
       return { content: `Theme set to ${theme}.` };
     },
+
+    async read_clipboard(_input, ui) {
+      const clip = await readClipboard();
+      if (clip?.image) {
+        ui.addImage(clip.image.dataUrl);
+        return {
+          content: [
+            { type: "image", source: { type: "base64", media_type: clip.image.mediaType, data: clip.image.data } },
+            { type: "text", text: "This image is on the user's clipboard." },
+          ],
+        };
+      }
+      const text = (clip?.text || "").slice(0, 50000);
+      if (!text.trim()) return { content: "The clipboard is empty." };
+      ui.addCard(card({ iconHtml: "📋", title: "Read your clipboard", sub: `${text.slice(0, 90).replace(/\s+/g, " ")}${text.length > 90 ? "…" : ""}` }));
+      return { content: `Clipboard contents:\n\n${text}` };
+    },
+
+    async memory(input) {
+      return memoryAction(input);
+    },
+
+    async convert_currency({ amount, from, to }, ui) {
+      try {
+        const r = await convertCurrency(amount, from, to);
+        ui.addCard(card({ iconHtml: "💱", title: `${money(r.amount, r.from)} = ${money(r.result, r.to)}`, sub: `1 ${r.from} = ${formatNumber(r.rate)} ${r.to} · rate from ${r.date}` }));
+        return { content: `${r.amount} ${r.from} = ${r.result.toFixed(2)} ${r.to} (rate ${r.rate}, ${r.date}).` };
+      } catch (err) {
+        return { content: err.message, isError: true };
+      }
+    },
+
+    async generate_password({ length = 16, symbols = true }, ui) {
+      ui.addCard(passwordCard(generatePassword({ length, symbols })));
+      return { content: `Generated a ${length}-character password and showed it to the user with a Copy button. It was not shared with you.` };
+    },
+
+    async open_app({ name }, ui) {
+      return openApp(name, ui);
+    },
   };
 
   /** Run a tool the AI asked for. Returns { content, isError }. */
@@ -398,10 +548,68 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
         if (player.current) ui.addCard(musicCard(player.current));
         return r.ok ? "⏭️ Next up." : r.message;
       }
+      case "copy_last": {
+        const last = getLastAnswer();
+        if (!last) return "There's nothing to copy yet.";
+        try {
+          await writeClipboard(last);
+          return "📋 Copied my last answer to your clipboard.";
+        } catch {
+          return copyText(last, ui).then((r) => r.reply);
+        }
+      }
+      case "stopwatch": {
+        if (a.action === "start") {
+          timers.startStopwatch();
+          return "⏱️ Stopwatch running. Say “stop stopwatch” to stop it.";
+        }
+        if (a.action === "reset") {
+          timers.resetStopwatch();
+          return "Stopwatch reset.";
+        }
+        const elapsed = timers.stopStopwatch();
+        return elapsed ? `⏱️ Stopped at **${formatClock(elapsed)}**.` : "The stopwatch isn't running. Say “start stopwatch”.";
+      }
+      case "focus":
+        return startFocus(a.seconds, ui);
+      case "password":
+        ui.addCard(passwordCard(generatePassword({ length: a.length, symbols: a.symbols })));
+        return "Here's a fresh password. It never leaves your computer.";
+      case "convert": {
+        if (a.kind === "unit") {
+          return `**${formatNumber(a.value)} ${a.fromName}** = **${formatNumber(Number(a.result.toPrecision(7)))} ${a.toName}**`;
+        }
+        try {
+          const r = await convertCurrency(a.amount, a.from, a.to);
+          return `💱 **${money(r.amount, r.from)} = ${money(r.result, r.to)}**\n\n1 ${r.from} = ${formatNumber(r.rate)} ${r.to} (rate from ${r.date})`;
+        } catch (err) {
+          return err.message;
+        }
+      }
+      case "memory_add":
+        return memoryAction({ action: "add", text: a.text }).reply;
+      case "memory_list":
+        return memoryAction({ action: "list" }).reply;
+      case "memory_clear":
+        memories.save([]);
+        return "🧹 I've forgotten everything you asked me to remember.";
+      case "memory_forget": {
+        const list = memories.all();
+        const words = a.text.toLowerCase().split(/\s+/).filter((w) => w.length > 2 && !["my", "the", "that", "about"].includes(w));
+        const index = list.findIndex((m) => words.some((w) => m.text.toLowerCase().includes(w)));
+        if (index === -1) return "I couldn't find that in my memory. Say “what do you remember” to see everything.";
+        return memoryAction({ action: "remove", index: index + 1 }).reply;
+      }
       case "youtube":
         return (await openUrl(`https://www.youtube.com/results?search_query=${encodeURIComponent(a.query)}`, `YouTube: ${a.query}`, ui)).reply;
-      case "open":
+      case "open": {
+        const looksLikeSite = /\.|^https?:/.test(a.name) || ["youtube", "google", "gmail", "maps", "google maps", "wikipedia", "reddit", "amazon", "github", "x", "twitter", "facebook", "instagram"].includes(a.name);
+        if (desktop && !looksLikeSite) {
+          const result = await openApp(a.name, ui);
+          if (!result.isError) return result.reply;
+        }
         return (await openUrl(a.url, a.name, ui)).reply;
+      }
       case "search":
         return (await openUrl(`https://www.google.com/search?q=${encodeURIComponent(a.query)}`, `Search: ${a.query}`, ui)).reply;
       case "timer":

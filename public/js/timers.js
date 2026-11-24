@@ -36,6 +36,8 @@ export class Timers extends EventTarget {
     this.container = container;
     const now = Date.now();
     this.list = storage.get("timers", []).filter((t) => t.end > now);
+    this.stopwatch = storage.get("stopwatch", null); // { start, elapsed, running }
+    this.isHidden = () => document.hidden; // the desktop app replaces this
     this.tick = null;
     this.render();
     this.ensureTicking();
@@ -45,12 +47,13 @@ export class Timers extends EventTarget {
     storage.set("timers", this.list.filter((t) => !t.done));
   }
 
-  add({ seconds, label = "Timer" }) {
+  add({ seconds, label = "Timer", kind = "timer" }) {
     const timer = {
       id: Math.random().toString(36).slice(2),
       label: String(label || "Timer").slice(0, 80),
       end: Date.now() + seconds * 1000,
       total: seconds,
+      kind,
     };
     this.list.push(timer);
     this.save();
@@ -79,8 +82,42 @@ export class Timers extends EventTarget {
     return this.list.filter((t) => !t.done);
   }
 
+  // ----- stopwatch -----
+
+  stopwatchElapsed() {
+    const sw = this.stopwatch;
+    if (!sw) return 0;
+    return (sw.elapsed + (sw.running ? Date.now() - sw.start : 0)) / 1000;
+  }
+
+  startStopwatch() {
+    const sw = this.stopwatch;
+    if (sw?.running) return this.stopwatchElapsed();
+    this.stopwatch = { start: Date.now(), elapsed: sw ? sw.elapsed : 0, running: true };
+    storage.set("stopwatch", this.stopwatch);
+    this.render();
+    this.ensureTicking();
+    return this.stopwatchElapsed();
+  }
+
+  stopStopwatch() {
+    const elapsed = this.stopwatchElapsed();
+    if (this.stopwatch) {
+      this.stopwatch = { start: 0, elapsed: elapsed * 1000, running: false };
+      storage.set("stopwatch", this.stopwatch);
+      this.render();
+    }
+    return elapsed;
+  }
+
+  resetStopwatch() {
+    this.stopwatch = null;
+    storage.set("stopwatch", null);
+    this.render();
+  }
+
   ensureTicking() {
-    if (this.tick || !this.list.length) return;
+    if (this.tick || (!this.list.length && !this.stopwatch?.running)) return;
     this.tick = setInterval(() => this.update(), 250);
   }
 
@@ -93,7 +130,7 @@ export class Timers extends EventTarget {
         this.ring(t);
       }
     }
-    if (!this.list.length) {
+    if (!this.list.length && !this.stopwatch?.running) {
       clearInterval(this.tick);
       this.tick = null;
     }
@@ -103,7 +140,7 @@ export class Timers extends EventTarget {
   ring(timer) {
     chime(3);
     this.dispatchEvent(new CustomEvent("done", { detail: timer }));
-    if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
+    if ("Notification" in window && Notification.permission === "granted" && this.isHidden()) {
       try {
         new Notification("⏰ Nova", { body: `Time's up: ${timer.label}` });
       } catch {
@@ -115,7 +152,23 @@ export class Timers extends EventTarget {
   }
 
   render() {
+    const sw = this.stopwatch
+      ? el("div", { class: `timer stopwatch${this.stopwatch.running ? "" : " paused"}`, "data-id": "stopwatch" }, [
+          el("span", { text: "⏱️", "aria-hidden": "true" }),
+          el("span", { text: "Stopwatch" }),
+          el("b", { class: "timer-time" }),
+          el("button", {
+            class: "icon-btn small",
+            type: "button",
+            title: this.stopwatch.running ? "Stop" : "Resume",
+            html: icon(this.stopwatch.running ? "pause" : "play"),
+            onclick: () => (this.stopwatch.running ? this.stopStopwatch() : this.startStopwatch()),
+          }),
+          el("button", { class: "icon-btn small", type: "button", title: "Reset", html: icon("x"), onclick: () => this.resetStopwatch() }),
+        ])
+      : null;
     this.container.replaceChildren(
+      ...(sw ? [sw] : []),
       ...this.list.map((t) =>
         el("div", { class: `timer${t.done ? " done" : ""}`, "data-id": t.id }, [
           el("span", { html: icon("clock"), class: "timer-icon", "aria-hidden": "true" }),
@@ -136,6 +189,11 @@ export class Timers extends EventTarget {
 
   renderTimes() {
     const now = Date.now();
+    const sw = this.container.querySelector('[data-id="stopwatch"] .timer-time');
+    if (sw) {
+      const e = this.stopwatchElapsed();
+      sw.textContent = `${formatClock(e)}.${Math.floor((e % 1) * 10)}`;
+    }
     for (const t of this.list) {
       const node = this.container.querySelector(`[data-id="${t.id}"]`);
       if (!node) continue;

@@ -4,8 +4,21 @@ const sel = document.getElementById("sel");
 const size = document.getElementById("size");
 let start = null;
 let box = null;
+let mode = "answer";
 
-window.overlay.onImage((dataUrl) => {
+function setMode(next) {
+  mode = next;
+  for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("on", b.dataset.mode === mode);
+}
+const hint = document.getElementById("hint");
+hint.addEventListener("pointerdown", (e) => e.stopPropagation()); // clicks on the toolbar don't start a selection
+hint.addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-mode]");
+  if (button) setMode(button.dataset.mode);
+});
+
+window.overlay.onImage(({ dataUrl, mode: initialMode }) => {
+  setMode(initialMode || "answer");
   shot.onload = () => requestAnimationFrame(() => window.overlay.ready());
   shot.src = dataUrl;
 });
@@ -44,11 +57,14 @@ window.addEventListener("pointerup", () => {
     document.body.classList.remove("selecting");
     return;
   }
-  window.overlay.result(box);
+  window.overlay.result({ ...box, mode });
 });
 
+const MODE_KEYS = { 1: "answer", 2: "text", 3: "translate", 4: "explain", a: "answer", c: "text", t: "translate", e: "explain" };
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") window.overlay.result(null);
-  else if (e.key === "Enter") window.overlay.result("full");
+  else if (e.key === "Enter") window.overlay.result({ full: true, mode });
+  else if (MODE_KEYS[e.key.toLowerCase()]) setMode(MODE_KEYS[e.key.toLowerCase()]);
 });
+
 window.addEventListener("contextmenu", (e) => e.preventDefault());

@@ -10,6 +10,13 @@ Nova is an AI assistant for your browser or desktop. Type or say what you want a
 | **timer 10 minutes**, **remind me in 20 min to stretch**, **alarm at 7:30 am** | Sets timers and alarms, with a sound and a notification |
 | **weather**, **weather in Tokyo** | Shows the current weather and a 4-day forecast |
 | **open YouTube**, **cat videos on YouTube**, **search pizza near me** | Opens sites and searches |
+| **copy the text from my screen**, **translate this**, **explain this** | Snips your screen and copies, translates or explains what's there |
+| **summarize my clipboard**, **fix the grammar in what I copied**, **copy that** | Works with your clipboard |
+| **remember that my name is Sam**, **what do you remember**, **forget my name** | Remembers things about you across chats |
+| **10 km to miles**, **350 f to c**, **$50 to euros**, **how many ounces in a pound** | Converts units and currencies (live exchange rates) |
+| **pomodoro**, **focus for 50 minutes**, **start stopwatch** | Focus sessions with music, and a stopwatch |
+| **generate a password**, **make a 24 character password** | Makes a secure password that never leaves your computer |
+| **open Spotify**, **open calculator** (desktop app) | Opens apps installed on your computer |
 | **note buy milk**, **show my notes** | Keeps a notes and to-do list |
 | **what's 15% of 80**, **define serendipity**, **who is Ada Lovelace** | Calculates and looks things up |
 | *anything else* | Answers it with Claude, searching the web when needed |
@@ -19,7 +26,7 @@ It also has voice control (including a hands-free mode with the wake word **“N
 There are two ways to run it:
 
 - **Web version** (`npm start`): open it in Chrome or Edge, on your computer or phone. Has voice control.
-- **Desktop app** (`npm run desktop`): press **Ctrl+Shift+Space** in any app, drag a box around a question, and the answer pops up right next to it. Lives in your system tray. [Details below](#desktop-app).
+- **Desktop app** (`npm run desktop`, or [download an installer](https://github.com/sashauzberg-oss/AI_assistant/releases/latest)): a floating typing bar you open with **Alt+Space**, plus **Ctrl+Shift+Space** in any app to snip a question and get the answer right next to it. [Details below](#desktop-app).
 
 ## Quick start
 
@@ -51,17 +58,22 @@ Shortcut: **Ctrl+Shift+S** opens Nova's snipper.
 
 ## Desktop app
 
-The desktop app is Nova in its own window, plus a **global hotkey** that works like the Snipping Tool:
+Download it from the [latest release](https://github.com/sashauzberg-oss/AI_assistant/releases/latest): `Nova-Setup.exe` (Windows), `Nova-Mac.dmg` (Mac) or `Nova-Linux.AppImage` (Linux).
 
-1. Press **Ctrl+Shift+Space** (**⌘⇧Space** on a Mac) in any app: a game, a PDF, a quiz, your code editor.
-2. The screen freezes and dims. Drag a box around the question (or press **Enter** for the whole screen, **Esc** to cancel).
-3. A small answer bubble appears next to your selection and fills in as Nova answers. **Copy** copies the answer, **Open in Nova** continues the conversation in the main window, and **Esc** closes the bubble.
+**The typing bar.** Press **Alt+Space** (⌥Space on a Mac) anywhere and a slim typing bar appears near the top of the screen. Type and press Enter: the bar grows downward to show the answer, music player and timers. Press **Esc** or click somewhere else to put it away. The 📌 button keeps it open, the ⌃ button folds the conversation away, and you can drag the bar by its round logo.
 
-Other shortcuts and behavior:
+**Snip anything.** Press **Ctrl+Shift+Space** (⌘⇧Space on a Mac) in any app: a game, a PDF, a quiz, your code editor.
 
-- **Alt+Shift+N** shows or hides the Nova window.
-- Closing the window keeps Nova running in the system tray, so the hotkey keeps working. Quit from the tray icon.
-- Typing “answer this” or pressing ✂️ inside Nova uses the same native snipper (Nova hides itself while you snip), so there's no screen-share picker.
+1. The screen freezes and dims. Pick what to do in the toolbar at the top: **Answer** (1), **Copy text** (2), **Translate** (3) or **Explain** (4).
+2. Drag a box around it (or press **Enter** for the whole screen, **Esc** to cancel).
+3. A small bubble appears next to your selection and fills in as Nova answers. With **Copy text**, the text lands on your clipboard, so you can paste text from images, videos or PDFs that won't let you select it.
+
+Other things to know:
+
+- Nova keeps running in the system tray, so both shortcuts always work. Quit from the tray icon.
+- Typing “answer this” or pressing ✂️ in the bar uses the same snipper (the bar hides itself while you snip).
+- Nova can open apps on your computer: “open Spotify”, “open calculator”, “launch Discord”.
+- When the bar is put away while Nova is still answering, you get a notification when the answer is ready.
 - Change the shortcuts, or turn on **Start Nova when I sign in** (Windows and Mac), in **Settings › Desktop**.
 
 ### Run it from source
@@ -91,7 +103,7 @@ The installers aren't code-signed, so the first time you open Nova, Windows may 
 - **Mac**: the first snip asks for **Screen Recording** permission. Turn Nova on in System Settings › Privacy & Security › Screen Recording, then restart Nova.
 - **Voice input isn't available in the desktop app**, because Electron (which the app is built on) has no speech-recognition service. Read-aloud answers still work. For voice commands, use the web version in Chrome or Edge.
 - **Linux**: the hotkey works on X11. On Wayland, many desktops block global shortcuts for apps; use the tray menu's **Snip & answer** instead.
-- “weather” without a city can't find your location in the desktop app, so name a city (“weather in Paris”).
+- “weather” without a city can't find your location in the desktop app. Set your **home city** in Settings › Personal, or name a city (“weather in Paris”).
 
 ## Voice
 
@@ -125,8 +137,10 @@ The desktop app always listens on `127.0.0.1:47823`, and reads `ANTHROPIC_MODEL`
 ## Privacy
 
 - Your API key stays on your computer, in `.env`. It's never sent to the browser.
-- Messages and screenshots go to Anthropic only when the AI answers you. Built-in commands never leave your computer, apart from the free services they use (weather from Open-Meteo, Wikipedia, dictionaryapi.dev, iTunes Search and radio-browser.info).
-- Notes, timers and settings are stored in your browser.
+- Messages and screenshots go to Anthropic only when the AI answers you. Built-in commands never leave your computer, apart from the free services they use (weather from Open-Meteo, Wikipedia, dictionaryapi.dev, iTunes Search, radio-browser.info, and exchange rates from Frankfurter).
+- Things you ask Nova to remember, and your home city, are sent along with each AI request so it can use them. Clear them anytime in Settings › Personal.
+- Nova reads your clipboard only when you ask it to (“summarize my clipboard”). Generated passwords are never sent to the AI.
+- Notes, memories, timers and settings are stored in your browser (or in the desktop app).
 - The server listens only on `localhost` unless you change `HOST`.
 
 ## How it works
@@ -140,10 +154,12 @@ public/js/app.js     Chat UI and wiring
 public/js/ai.js      Streams Claude's answers and runs its tool calls in the browser
 public/js/tools.js   Everything Nova can do (music, screen capture, timers, weather, notes, links…)
 public/js/commands.js  Understands built-in commands without AI (offline mode, instant controls)
+public/js/extras.js  Unit and currency conversion parsing, password generator
 public/js/music.js   Music player; synth.js generates offline music
 public/js/screen.js  The snipping tool
 public/js/voice.js   Speech recognition, wake word and read-aloud
-desktop/main.js      Desktop app: window, tray, global hotkeys, native screen capture, answer bubble
+desktop/main.js      Desktop app: the floating bar, tray, global hotkeys, native screen capture, answer bubble
+desktop/apps.js      Opens installed apps by name (Start menu on Windows, `open -a` on Mac, .desktop files on Linux)
 desktop/ui/          The snip overlay and the answer bubble
 desktop/*.cjs        Bridges that give each desktop window only the functions it needs
 ```

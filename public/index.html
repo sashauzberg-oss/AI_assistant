@@ -107,7 +107,19 @@
         </div>
         <p id="hotkeys-msg" class="small" role="status"></p>
         <label class="check" id="login-row"><input id="settings-login" type="checkbox"> Start Nova when I sign in</label>
-        <p class="muted small">Closing the window keeps Nova running in the tray so the shortcut keeps working. Voice input isn't available in the desktop app; open Nova in Chrome or Edge to talk to it.</p>
+        <p class="muted small">Press <b>Esc</b> or click somewhere else to put Nova away (pin it to keep it open). It keeps running in the tray so the shortcuts always work. Voice input isn't available in the desktop app; open Nova in Chrome or Edge to talk to it.</p>
+      </section>
+
+      <section class="setting">
+        <h3>Personal</h3>
+        <label class="field">
+          <span>Home city (used for “weather” when you don't name a place)</span>
+          <input id="settings-city" type="text" placeholder="e.g. Chicago" autocomplete="off">
+        </label>
+        <div class="row">
+          <span id="settings-memories" class="muted small"></span>
+          <button id="settings-clear-memories" class="btn" type="button">Clear memories</button>
+        </div>
       </section>
 
       <section class="setting">
