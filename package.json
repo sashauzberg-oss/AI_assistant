@@ -1,12 +1,15 @@
 {
   "name": "nova-ai-assistant",
+  "productName": "Nova",
   "version": "1.0.0",
-  "description": "Nova: an AI assistant web app that plays music, answers questions from your screen, sets timers, and much more.",
+  "description": "Nova: an AI assistant that plays music, answers questions from your screen (with a global snip hotkey on desktop), sets timers, and much more.",
   "type": "module",
-  "main": "server.js",
+  "main": "desktop/main.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "desktop": "electron desktop/main.js",
+    "dist": "electron-builder",
     "test": "node --test \"test/*.test.js\""
   },
   "engines": {
@@ -16,5 +19,46 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.13.0",
     "express": "^5.3.0"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "author": "Nova",
+  "build": {
+    "appId": "com.nova.assistant",
+    "productName": "Nova",
+    "files": [
+      "server.js",
+      "lib/**",
+      "public/**",
+      "desktop/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "desktop/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity",
+      "icon": "desktop/assets/icon.png",
+      "extendInfo": {
+        "NSScreenCaptureUsageDescription": "Nova reads the part of the screen you snip so it can answer the question."
+      }
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility",
+      "icon": "desktop/assets/icon.png"
+    }
   }
 }

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; script-src 'self'">
+  <title>Nova answer</title>
+  <style>
+    :root {
+      --bg: #ffffff; --surface-2: #eef0f7; --border: #e0e3ee; --text: #151926; --muted: #5e6579; --accent: #7c3aed; --danger: #dc2626;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #141824; --surface-2: #1c2131; --border: #2b3246; --text: #e8eaf3; --muted: #9aa1b6; --accent: #a78bfa; --danger: #f87171; color-scheme: dark; }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    body { overflow-y: auto; border: 1px solid var(--border); height: 100vh; }
+    header {
+      display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px;
+      -webkit-app-region: drag; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg);
+    }
+    .orb { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #8b5cf6, #22d3ee); flex: none; }
+    body.working .orb { animation: spin 2.4s linear infinite; }
+    @keyframes spin { to { filter: hue-rotate(360deg); } }
+    header b { flex: 1; font-size: 13px; }
+    header button {
+      -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--muted); cursor: pointer;
+      font: 12px system-ui, sans-serif; padding: 5px 9px; border-radius: 7px;
+    }
+    header button:hover { background: var(--surface-2); color: var(--text); }
+    header button.primary { background: var(--accent); color: #fff; }
+    header #close { font-size: 16px; line-height: 1; padding: 4px 8px; }
+    #card { padding: 10px 14px 12px; }
+    #thumb { display: block; max-width: 100%; max-height: 72px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 8px; }
+    #status { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+    .dots { display: inline-flex; gap: 3px; }
+    .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+    .dots i:nth-child(2) { animation-delay: 0.15s; } .dots i:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+    #answer { overflow-wrap: anywhere; }
+    #answer > :first-child { margin-top: 0; } #answer > :last-child { margin-bottom: 0; }
+    #answer p { margin: 0 0 0.6em; }
+    #answer ul, #answer ol { margin: 0.2em 0 0.7em; padding-left: 1.3em; }
+    #answer h2, #answer h3, #answer h4 { margin: 0.7em 0 0.3em; font-size: 1.05em; }
+    #answer code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.88em; background: var(--surface-2); padding: 0.1em 0.35em; border-radius: 5px; }
+    #answer pre { position: relative; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+    #answer pre code { background: none; padding: 0; }
+    #answer table { border-collapse: collapse; font-size: 0.93em; }
+    #answer th, #answer td { border: 1px solid var(--border); padding: 4px 8px; }
+    #answer a { color: var(--accent); }
+    .copy-code { position: absolute; top: 5px; right: 5px; font-size: 11px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); border-radius: 6px; cursor: pointer; }
+    #error { color: var(--danger); }
+    footer { color: var(--muted); font-size: 11px; margin-top: 10px; }
+  </style>
+</head>
+<body class="working">
+  <header>
+    <span class="orb"></span>
+    <b>Nova</b>
+    <button id="copy" type="button" hidden>Copy</button>
+    <button id="open" type="button" class="primary">Open in Nova</button>
+    <button id="close" type="button" title="Close (Esc)">×</button>
+  </header>
+  <div id="card">
+    <img id="thumb" alt="Your snip">
+    <div id="status"><span class="dots"><i></i><i></i><i></i></span><span id="status-text">Reading your snip…</span></div>
+    <div id="answer"></div>
+    <div id="error" hidden></div>
+    <footer id="footer"></footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

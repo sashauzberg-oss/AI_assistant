@@ -1,6 +1,6 @@
 # Nova: your AI assistant
 
-Nova is an AI assistant that runs in your browser. Type or say what you want and it does it:
+Nova is an AI assistant for your browser or desktop. Type or say what you want and it does it:
 
 | You say | Nova does |
 |---|---|
@@ -15,6 +15,11 @@ Nova is an AI assistant that runs in your browser. Type or say what you want and
 | *anything else* | Answers it with Claude, searching the web when needed |
 
 It also has voice control (including a hands-free mode with the wake word **“Nova”**), read-aloud answers, light and dark themes, and a layout that works on phones.
+
+There are two ways to run it:
+
+- **Web version** (`npm start`): open it in Chrome or Edge, on your computer or phone. Has voice control.
+- **Desktop app** (`npm run desktop`): press **Ctrl+Shift+Space** in any app, drag a box around a question, and the answer pops up right next to it. Lives in your system tray. [Details below](#desktop-app).
 
 ## Quick start
 
@@ -44,6 +49,50 @@ There are three ways to show Nova a question:
 
 Shortcut: **Ctrl+Shift+S** opens Nova's snipper.
 
+## Desktop app
+
+The desktop app is Nova in its own window, plus a **global hotkey** that works like the Snipping Tool:
+
+1. Press **Ctrl+Shift+Space** (**⌘⇧Space** on a Mac) in any app: a game, a PDF, a quiz, your code editor.
+2. The screen freezes and dims. Drag a box around the question (or press **Enter** for the whole screen, **Esc** to cancel).
+3. A small answer bubble appears next to your selection and fills in as Nova answers. **Copy** copies the answer, **Open in Nova** continues the conversation in the main window, and **Esc** closes the bubble.
+
+Other shortcuts and behavior:
+
+- **Alt+Shift+N** shows or hides the Nova window.
+- Closing the window keeps Nova running in the system tray, so the hotkey keeps working. Quit from the tray icon.
+- Typing “answer this” or pressing ✂️ inside Nova uses the same native snipper (Nova hides itself while you snip), so there's no screen-share picker.
+- Change the shortcuts, or turn on **Start Nova when I sign in** (Windows and Mac), in **Settings › Desktop**.
+
+### Run it from source
+
+```bash
+npm install
+```
+
+```bash
+npm run desktop
+```
+
+Paste your API key in Settings the first time. The desktop app keeps it in its own data folder (`%APPDATA%\Nova` on Windows, `~/Library/Application Support/Nova` on Mac, `~/.config/Nova` on Linux). When run from source it also reads the project's `.env`.
+
+### Build an installer
+
+```bash
+npm run dist
+```
+
+This creates an installer in `dist/` for the system you run it on: a setup `.exe` on Windows, a `.dmg` on Mac, or an `.AppImage` on Linux. Build on Windows to get the Windows installer, and on a Mac to get the Mac one.
+
+The installers aren't code-signed, so the first time you open Nova, Windows may show a “Windows protected your PC” screen (click **More info › Run anyway**) and macOS may refuse to open it (right-click the app and choose **Open**).
+
+### Desktop notes
+
+- **Mac**: the first snip asks for **Screen Recording** permission. Turn Nova on in System Settings › Privacy & Security › Screen Recording, then restart Nova.
+- **Voice input isn't available in the desktop app**, because Electron (which the app is built on) has no speech-recognition service. Read-aloud answers still work. For voice commands, use the web version in Chrome or Edge.
+- **Linux**: the hotkey works on X11. On Wayland, many desktops block global shortcuts for apps; use the tray menu's **Snip & answer** instead.
+- “weather” without a city can't find your location in the desktop app, so name a city (“weather in Paris”).
+
 ## Voice
 
 - **Microphone button**: say one thing.
@@ -71,6 +120,8 @@ Put these in `.env` (see `.env.example`):
 | `PORT` | `3000` | Port for the web server |
 | `HOST` | `127.0.0.1` | Set to `0.0.0.0` to open Nova from your phone on the same Wi-Fi (`http://<your-computer-ip>:3000`). Browsers only allow the microphone and screen capture on `localhost` or HTTPS, so those two features work only on the computer itself. |
 
+The desktop app always listens on `127.0.0.1:47823`, and reads `ANTHROPIC_MODEL` and `AI_EFFORT` from the `.env` in its data folder.
+
 ## Privacy
 
 - Your API key stays on your computer, in `.env`. It's never sent to the browser.
@@ -92,6 +143,9 @@ public/js/commands.js  Understands built-in commands without AI (offline mode, i
 public/js/music.js   Music player; synth.js generates offline music
 public/js/screen.js  The snipping tool
 public/js/voice.js   Speech recognition, wake word and read-aloud
+desktop/main.js      Desktop app: window, tray, global hotkeys, native screen capture, answer bubble
+desktop/ui/          The snip overlay and the answer bubble
+desktop/*.cjs        Bridges that give each desktop window only the functions it needs
 ```
 
 Claude decides what to do and calls tools such as `play_music`, `capture_screen`, `set_timer` or `get_weather`. Those tools run in your browser, where the speakers, screen and microphone are, and their results go back to Claude. Claude can also search and read the web on its own. The model's server-side refusal fallback is turned on, so if a request is declined, the API retries it on a fallback model automatically.
@@ -110,3 +164,4 @@ This runs the command-parser and calculator tests and an end-to-end test of the 
 - **“answer this” captured the wrong thing**: pick the specific window or tab with the question instead of the entire screen, since your whole screen will mostly show Nova itself.
 - **The microphone doesn't work**: allow microphone access in the address bar, and use Chrome or Edge.
 - **The radio doesn't start**: some networks block streaming. Nova falls back to its built-in music automatically.
+- **The desktop hotkey does nothing**: another app may already use it. Nova tells you at startup; pick a different shortcut in Settings › Desktop.

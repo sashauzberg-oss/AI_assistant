@@ -179,10 +179,15 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
     return data;
   }
 
-  function openUrl(url, label, ui) {
+  async function openUrl(url, label, ui) {
     if (!isHttpUrl(url)) return { content: "That isn't a valid web address.", isError: true };
-    const win = window.open(url, "_blank");
-    if (win) win.opener = null;
+    let win = null;
+    if (window.novaDesktop) {
+      win = await window.novaDesktop.openExternal(url); // opens in the default browser
+    } else {
+      win = window.open(url, "_blank");
+      if (win) win.opener = null;
+    }
     ui.addCard(linkCard(url, label));
     return {
       content: win ? `Opened ${url} in a new tab.` : `The browser blocked the pop-up, so a link to ${url} is shown for the user to click.`,
@@ -394,11 +399,11 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
         return r.ok ? "⏭️ Next up." : r.message;
       }
       case "youtube":
-        return openUrl(`https://www.youtube.com/results?search_query=${encodeURIComponent(a.query)}`, `YouTube: ${a.query}`, ui).reply;
+        return (await openUrl(`https://www.youtube.com/results?search_query=${encodeURIComponent(a.query)}`, `YouTube: ${a.query}`, ui)).reply;
       case "open":
-        return openUrl(a.url, a.name, ui).reply;
+        return (await openUrl(a.url, a.name, ui)).reply;
       case "search":
-        return openUrl(`https://www.google.com/search?q=${encodeURIComponent(a.query)}`, `Search: ${a.query}`, ui).reply;
+        return (await openUrl(`https://www.google.com/search?q=${encodeURIComponent(a.query)}`, `Search: ${a.query}`, ui)).reply;
       case "timer":
         return addTimer(a.seconds, a.label, ui).reply;
       case "alarm": {

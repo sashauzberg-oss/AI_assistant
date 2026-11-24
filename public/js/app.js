@@ -1,5 +1,5 @@
 // Nova: wires the chat UI to the AI, the offline commands and all the tools.
-import { $, el, storage, getJson } from "./util.js";
+import { $, el, storage, getJson, sleep } from "./util.js";
 import { applyIcons, setIcon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
 import { parseCommand, isInstant } from "./commands.js";
@@ -42,6 +42,11 @@ const state = {
   theme: storage.get("theme", "system"),
 };
 
+// Set when running inside the Nova desktop app (see desktop/preload.cjs).
+const desktop = window.novaDesktop || null;
+let desktopSettings = null;
+if (desktop) document.body.classList.add("desktop");
+
 const player = new MusicPlayer();
 new PlayerView(player, $("#player"));
 const snipper = new ScreenSnipper();
@@ -73,6 +78,7 @@ function addUserMessage(text, image, source) {
     image ? el("img", { src: image.dataUrl, alt: "Attached screenshot" }) : null,
     text,
     source === "voice" ? el("span", { class: "via", text: "🎤 said" }) : null,
+    source === "hotkey" ? el("span", { class: "via", text: "✂️ snipped with the hotkey" }) : null,
   ]);
   ui.chat.append(el("div", { class: "msg user" }, [body]));
   scrollToBottom();
@@ -181,6 +187,13 @@ function showWelcome() {
         { class: "chips" },
         chips.map((c) => el("button", { class: "chip", type: "button", text: c, onclick: () => submit(c, "text") })),
       ),
+      desktopSettings?.labels.snip
+        ? el("div", { class: "desktop-tip" }, [
+            "Tip: press ",
+            el("kbd", { text: desktopSettings.labels.snip }),
+            " in any app to snip a question and get the answer right next to it.",
+          ])
+        : null,
       state.ai
         ? null
         : el("div", {
@@ -218,7 +231,9 @@ async function refreshStatus() {
   renderStatus();
 }
 
+const settingsOpenHooks = [];
 function openSettings() {
+  settingsOpenHooks.forEach((hook) => hook());
   $("#settings-speak").checked = state.speak;
   $("#settings-speak-voice").checked = state.speakWhenSpoken;
   $("#settings-key-msg").textContent = "";
@@ -346,6 +361,7 @@ function captureError(err) {
  *   (voice, or the AI asking mid-answer), show a button for the user to press.
  */
 async function captureScreen({ interactive, ui: msg, fromTool = false } = {}) {
+  if (desktop) return desktop.snip(); // native snipping overlay, no share picker needed
   const crop = interactive ?? !document.hidden;
   if (snipper.linked) return snipper.capture({ interactive: crop });
   if (fromTool || !navigator.userActivation?.isActive) {
@@ -382,7 +398,7 @@ async function captureScreen({ interactive, ui: msg, fromTool = false } = {}) {
 
 ui.snip.addEventListener("click", async () => {
   try {
-    const image = await snipper.capture({ interactive: true });
+    const image = desktop ? await desktop.snip() : await snipper.capture({ interactive: true });
     if (image) {
       setAttachment(image);
       ui.input.focus();
@@ -408,7 +424,7 @@ ui.screenBtn.addEventListener("click", async () => {
     systemNote(captureError(err));
   }
 });
-if (!snipper.supported) ui.screenBtn.hidden = true;
+if (!snipper.supported || desktop) ui.screenBtn.hidden = true; // the desktop app snips natively
 
 // ---------------------------------------------------------------- voice
 
@@ -454,7 +470,8 @@ voice.addEventListener("error", (e) => {
   systemNote(e.detail);
   renderVoiceButtons();
 });
-if (!voice.supported) {
+// Electron has no speech recognition service, so voice input is a browser-only feature.
+if (!voice.supported || desktop) {
   ui.mic.hidden = true;
   ui.handsFreeBtn.hidden = true;
 }
@@ -496,7 +513,28 @@ function collectSources(content) {
   return sources;
 }
 
-async function runAI(text, image, source) {
+/** Throttled forwarding of an answer's progress to the desktop answer bubble. */
+function createMirror(send) {
+  let pending = {};
+  let timer = null;
+  const flush = () => {
+    timer = null;
+    if (pending.text !== undefined) pending.html = renderMarkdown(pending.text);
+    send(pending);
+    pending = {};
+  };
+  return (update) => {
+    Object.assign(pending, update);
+    if (update.done) {
+      clearTimeout(timer);
+      flush();
+    } else {
+      timer ??= setTimeout(flush, 60);
+    }
+  };
+}
+
+async function runAI(text, image, source, mirror = null) {
   const msg = addAssistantMessage();
   const content = image
     ? [
@@ -514,8 +552,12 @@ async function runAI(text, image, source) {
       onText: (delta) => {
         msg.setStatus("");
         msg.appendText(delta);
+        mirror?.({ text: msg.text });
       },
-      onStatus: (s) => msg.setStatus(s),
+      onStatus: (s) => {
+        msg.setStatus(s);
+        mirror?.({ status: s });
+      },
       onReset: () => msg.resetRound(),
       onRound: () => {
         msg.newRound();
@@ -535,9 +577,11 @@ async function runAI(text, image, source) {
     if (!msg.text.trim() && !result.refused) msg.setText(result.note || "Done.");
     msg.addSources(sources);
     msg.done();
+    mirror?.({ text: msg.text, done: true });
     speakIfWanted(msg.text, source);
   } catch (err) {
     msg.done();
+    mirror?.({ error: err.name === "AbortError" ? "Stopped." : err.message, done: true });
     if (err.name === "AbortError") {
       msg.error("Stopped.");
     } else if (err instanceof NoKeyError) {
@@ -668,14 +712,130 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ---------------------------------------------------------------- desktop app
+
+const MODIFIER_LABELS = { CommandOrControl: "Ctrl", Control: "Ctrl", Alt: "Alt", Shift: "Shift", Super: "Win" };
+const MAC_LABELS = { CommandOrControl: "⌘", Control: "⌃", Alt: "⌥", Shift: "⇧" };
+const KEY_NAMES = {
+  Space: "Space", Enter: "Enter", Tab: "Tab", Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]",
+  Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", ArrowUp: "Up", ArrowDown: "Down",
+  ArrowLeft: "Left", ArrowRight: "Right", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
+  Insert: "Insert", Delete: "Delete", PrintScreen: "PrintScreen",
+};
+
+function formatAccelerator(accel) {
+  if (!accel) return "";
+  const mac = desktop?.platform === "darwin";
+  return accel
+    .split("+")
+    .map((part) => (mac ? MAC_LABELS[part] : MODIFIER_LABELS[part]) || part)
+    .join(mac ? "" : "+");
+}
+
+/** Turns a key press into an Electron accelerator like "CommandOrControl+Shift+Space". */
+function acceleratorFromEvent(e) {
+  const mac = desktop?.platform === "darwin";
+  const mods = [];
+  if (mac ? e.metaKey : e.ctrlKey) mods.push("CommandOrControl");
+  if (mac && e.ctrlKey) mods.push("Control");
+  if (e.altKey) mods.push("Alt");
+  if (e.shiftKey) mods.push("Shift");
+  if (!mac && e.metaKey) mods.push("Super");
+  let key = null;
+  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
+  else if (/^F\d{1,2}$/.test(e.code)) key = e.code;
+  else key = KEY_NAMES[e.code] || null;
+  if (!key) return null; // only modifier keys so far
+  if (!mods.length && !/^F\d+$/.test(key) && key !== "PrintScreen") return { error: "Add Ctrl, Alt or Shift to the shortcut." };
+  return { accel: [...mods, key].join("+") };
+}
+
+function setupDesktop() {
+  $("#settings-desktop").hidden = false;
+  const msg = $("#hotkeys-msg");
+  const fields = { snip: $("#hotkey-snip"), toggle: $("#hotkey-toggle") };
+
+  const fill = (hotkeys) => {
+    for (const [name, input] of Object.entries(fields)) {
+      input.dataset.accel = hotkeys[name] || "";
+      input.value = formatAccelerator(hotkeys[name]) || "None";
+    }
+  };
+  for (const input of Object.values(fields)) {
+    input.addEventListener("focus", () => input.classList.add("recording"));
+    input.addEventListener("blur", () => input.classList.remove("recording"));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Tab" || e.key === "Escape") return; // keep normal focus moves and closing the dialog
+      e.preventDefault();
+      if ((e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+        input.dataset.accel = "";
+        input.value = "None";
+        return;
+      }
+      const result = acceleratorFromEvent(e);
+      if (!result) return;
+      if (result.error) {
+        msg.className = "small msg-err";
+        msg.textContent = result.error;
+        return;
+      }
+      input.dataset.accel = result.accel;
+      input.value = formatAccelerator(result.accel);
+      msg.textContent = "";
+    });
+  }
+  $("#hotkeys-save").addEventListener("click", async () => {
+    const result = await desktop.setHotkeys({ snip: fields.snip.dataset.accel, toggle: fields.toggle.dataset.accel });
+    const problems = Object.values(result.errors || {});
+    msg.className = `small ${problems.length ? "msg-err" : "msg-ok"}`;
+    msg.textContent = problems.length ? problems.join(" ") : "Shortcuts saved.";
+    if (!problems.length) {
+      desktopSettings = await desktop.getSettings();
+      if (ui.chat.querySelector(".welcome")) showWelcome();
+    }
+  });
+  $("#hotkeys-reset").addEventListener("click", () => fill(desktopSettings.defaults));
+  $("#login-row").hidden = !desktopSettings.canOpenAtLogin;
+  $("#settings-login").addEventListener("change", async (e) => {
+    e.target.checked = await desktop.setOpenAtLogin(e.target.checked);
+  });
+  ui.settings.addEventListener("close", () => (msg.textContent = ""));
+  settingsOpenHooks.push(() => {
+    fill(desktopSettings.hotkeys);
+    $("#settings-login").checked = desktopSettings.openAtLogin;
+  });
+
+  // The global hotkey: the desktop app sends the snip here; the answer streams into the
+  // chat and into the bubble next to the snip.
+  desktop.onAskImage(async ({ image, prompt }) => {
+    for (let i = 0; i < 600 && state.busy; i++) await sleep(100); // let a running answer finish first
+    ui.chat.querySelector(".welcome")?.remove();
+    addUserMessage(prompt, image, "hotkey");
+    const mirror = createMirror(desktop.popupUpdate);
+    if (!state.ai) {
+      const text = "To answer questions I need my AI brain. Click **Open in Nova**, then paste an Anthropic API key in Settings.";
+      mirror({ text, done: true });
+      await runOffline(prompt, image, "hotkey");
+      return;
+    }
+    await runAI(prompt, image, "hotkey", mirror);
+  });
+}
+
 // ---------------------------------------------------------------- start
 
 if (window.matchMedia("(max-width: 520px)").matches) ui.input.placeholder = "Ask Nova anything…";
 renderScreenButton();
 renderVoiceButtons();
 await refreshStatus();
+if (desktop) {
+  desktopSettings = await desktop.getSettings();
+  setupDesktop();
+}
 showWelcome();
 ui.input.focus();
+desktop?.ready();
 
 // For automated tests and the browser console.
 window.nova = { submit, player, timers, conversation, snipper, voice };

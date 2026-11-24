@@ -87,8 +87,27 @@
       <section class="setting">
         <h3>Voice</h3>
         <label class="check"><input id="settings-speak" type="checkbox"> Read answers aloud</label>
-        <label class="check"><input id="settings-speak-voice" type="checkbox" checked> Always answer out loud when I speak to Nova</label>
-        <p class="muted small">Hands-free mode listens for the wake word <b>“Nova”</b>, as in “Nova, answer this”. Voice input works best in Chrome or Edge.</p>
+        <label class="check browser-only"><input id="settings-speak-voice" type="checkbox" checked> Always answer out loud when I speak to Nova</label>
+        <p class="muted small browser-only">Hands-free mode listens for the wake word <b>“Nova”</b>, as in “Nova, answer this”. Voice input works best in Chrome or Edge.</p>
+      </section>
+
+      <section class="setting" id="settings-desktop" hidden>
+        <h3>Desktop</h3>
+        <label class="field">
+          <span>Snip &amp; answer (works in any app)</span>
+          <input id="hotkey-snip" class="hotkey" readonly placeholder="Click, then press the keys">
+        </label>
+        <label class="field">
+          <span>Show or hide Nova</span>
+          <input id="hotkey-toggle" class="hotkey" readonly placeholder="Click, then press the keys">
+        </label>
+        <div class="row">
+          <button id="hotkeys-save" class="btn primary" type="button">Save shortcuts</button>
+          <button id="hotkeys-reset" class="btn" type="button">Reset to defaults</button>
+        </div>
+        <p id="hotkeys-msg" class="small" role="status"></p>
+        <label class="check" id="login-row"><input id="settings-login" type="checkbox"> Start Nova when I sign in</label>
+        <p class="muted small">Closing the window keeps Nova running in the tray so the shortcut keeps working. Voice input isn't available in the desktop app; open Nova in Chrome or Edge to talk to it.</p>
       </section>
 
       <section class="setting">
