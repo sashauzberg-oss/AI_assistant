@@ -21,7 +21,7 @@ Nova is an AI assistant for your browser or desktop. Type or say what you want a
 | **what's 15% of 80**, **define serendipity**, **who is Ada Lovelace** | Calculates and looks things up |
 | *anything else* | Answers it with Claude, searching the web when needed |
 
-**Your pixel pet answers everything.** A little pixel-art pet sits next to the typing bar and answers your questions in pixel speech bubbles. It blinks, talks while it answers, thinks while it waits, bobs along to music and dozes off when you're away. Click it to pick another animal (cat, dog, bunny, fox, frog or penguin) and give it a name, or just say “switch to a penguin” or “call yourself Pixel”.
+**Your pixel pet answers everything.** A little pixel-art pet sits next to the typing bar and answers your questions in pixel speech bubbles. It blinks, talks while it answers, thinks while it waits, bobs along to music and dozes off when you're away. Click it to pick another animal (cat, dog, bunny, fox, frog, penguin, panda, owl, hamster, duck, axolotl or dragon) and give it a name, or just say “be a dragon” or “call yourself Pixel”.
 
 **Auto-correct.** Typos are fixed as you type, like on a phone: “teh” becomes “the” when you press space, and “dont” becomes “don't”. A little chip shows what changed; click it or press Backspace right away to undo, and Nova won't change that word again. Names, links, ALL CAPS and your pet's name are left alone. Turn it off in Settings › Personal.
 
@@ -64,7 +64,7 @@ Shortcut: **Ctrl+Shift+S** opens Nova's snipper.
 
 Download it from the [latest release](https://github.com/sashauzberg-oss/AI_assistant/releases/latest): `Nova-Setup.exe` (Windows), `Nova-Mac.dmg` (Mac) or `Nova-Linux.AppImage` (Linux).
 
-**The typing bar.** Press **Alt+Space** (⌥Space on a Mac) anywhere and a slim typing bar appears near the top of the screen, with your pet sitting next to it. Type and press Enter: your pet answers in a two-line speech bubble just under the bar (scroll it, click ⤢ to open the whole answer, or ✕ to hide it), next to compact music controls and timers. Nothing ever takes more than 50px below the bar. Press **Esc** or click somewhere else to put it away. The 📌 button keeps it open, and you can drag the bar by its dotted handle.
+**The typing bar.** Press **Alt+Space** (⌥Space on a Mac) anywhere and a slim typing bar appears near the top of the screen, with your pet sitting next to it. Type and press Enter: your pet's answer scrolls by in a one-line pixel ticker just under the bar (hover to pause it, scroll it with the mouse wheel, click ⤢ to open the whole answer, or ✕ to hide it), next to compact music controls and timers. Nothing takes more than about 25px below the bar, and the pet picker swaps in for the typing row so it adds no height at all. Press **Esc** or click somewhere else to put it away. The 📌 button keeps it open, and you can drag the bar by its dotted handle.
 
 **Snip anything.** Press **Ctrl+Shift+Space** (⌘⇧Space on a Mac) in any app: a game, a PDF, a quiz, your code editor.
 

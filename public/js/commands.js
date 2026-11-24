@@ -141,7 +141,7 @@ export function parseCommand(input) {
   if (/^(help|commands|what can you do|what can i say|\?)$/.test(s)) return { name: "help" };
 
   // ----- the pet -----
-  const PET_WORDS = { cat: "cat", kitty: "cat", kitten: "cat", dog: "dog", puppy: "dog", doggo: "dog", bunny: "bunny", rabbit: "bunny", fox: "fox", frog: "frog", penguin: "penguin" };
+  const PET_WORDS = { cat: "cat", kitty: "cat", kitten: "cat", dog: "dog", puppy: "dog", doggo: "dog", bunny: "bunny", rabbit: "bunny", fox: "fox", frog: "frog", penguin: "penguin", panda: "panda", owl: "owl", hamster: "hamster", duck: "duck", duckling: "duck", chick: "duck", axolotl: "axolotl", dragon: "dragon" };
   const petWord = `(${Object.keys(PET_WORDS).join("|")})`;
   if ((m = s.match(new RegExp(`^(?:change|switch|turn)(?: my| the| your)?(?: pet| buddy| self|self)?(?: in)?(?: to| into) (?:a |an )?${petWord}s?$|^(?:be|become) (?:a |an )?${petWord}$|^(?:i want|give me|get me) (?:a |an )?${petWord}(?: pet)?$|^${petWord} (?:pet|mode)$`)))) {
     return { name: "pet", args: { kind: PET_WORDS[m.slice(1).find(Boolean)] } };

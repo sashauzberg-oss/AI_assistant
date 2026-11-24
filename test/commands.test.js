@@ -157,5 +157,8 @@ test("pet commands", () => {
   assert.deepEqual(parseCommand("call yourself Pixel"), { name: "pet_name", args: { name: "Pixel" } });
   assert.deepEqual(parseCommand("rename my pet to Sir Hops"), { name: "pet_name", args: { name: "Sir Hops" } });
   assert.equal(isInstant(parseCommand("switch to a fox")), true);
+  assert.deepEqual(parseCommand("be a dragon"), { name: "pet", args: { kind: "dragon" } });
+  assert.deepEqual(parseCommand("switch to an axolotl"), { name: "pet", args: { kind: "axolotl" } });
+  assert.deepEqual(parseCommand("I want a duckling"), { name: "pet", args: { kind: "duck" } });
   assert.equal(name("what does a fox say"), null);
 });

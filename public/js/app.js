@@ -202,6 +202,7 @@ function addAssistantMessage() {
       if (frame) cancelAnimationFrame(frame);
       flush();
       statusLine.remove();
+      body.dataset.done = "1";
       if (desktop) body.scrollTop = 0; // read the finished answer from the start
     },
     get text() {
@@ -1082,13 +1083,21 @@ function setupBar() {
     renderStrip();
     ui.input.focus();
   });
-  const answer = el("div", { class: "strip-answer" }, [ui.chat, el("div", { class: "strip-tools" }, [open, dismiss])]);
+  // The answer shows as a one-line ticker; the full chat stays in the page (hidden) for history.
+  const track = el("div", { class: "ticker-track" });
+  const ticker = el("div", { class: "ticker", title: "Hover to pause, scroll to move, ⤢ to open the whole answer" }, [track]);
+  const answer = el("div", { class: "strip-answer" }, [ticker, ui.chat, el("div", { class: "strip-tools" }, [open, dismiss])]);
   const side = el("div", { class: "strip-side" }, [$("#player"), $("#timers")]);
   strip = el("section", { class: "strip", hidden: true }, [answer, side]);
   strip.answer = answer;
   strip.side = side;
+  strip.ticker = ticker;
+  strip.track = track;
+  setupTicker();
 
-  appEl.replaceChildren(ui.form, petPicker, strip);
+  // The pet picker takes the typing row's place while it's open, so the bar doesn't grow.
+  ui.form.insertBefore(petPicker, row);
+  appEl.replaceChildren(ui.form, strip);
   // The pet sits next to the bar, outside the frame.
   const wrap = el("div", { class: "bar-wrap" });
   appEl.before(wrap);
@@ -1100,6 +1109,8 @@ function setupBar() {
     if (ui.chat.querySelector(".msg.latest")) answerDismissed = false;
     renderStrip();
   }).observe(ui.chat, { childList: true });
+  // Streaming text and new cards update the ticker.
+  new MutationObserver(() => scheduleTicker()).observe(ui.chat, { childList: true, subtree: true, characterData: true });
   new MutationObserver(() => renderStrip()).observe($("#timers"), { childList: true });
   player.addEventListener("change", () => renderStrip());
   new MutationObserver(() => renderStrip()).observe(petPicker, { attributes: true, attributeFilter: ["hidden"] });
@@ -1145,9 +1156,126 @@ function renderStrip() {
   const hasTimers = !!$("#timers").children.length;
   strip.answer.hidden = !hasAnswer;
   strip.side.hidden = !hasPlayer && !hasTimers;
-  // The pet picker uses the same space while it's open.
-  strip.hidden = !petPicker.hidden || (!hasAnswer && !hasPlayer && !hasTimers);
+  strip.hidden = !hasAnswer && !hasPlayer && !hasTimers;
+  ui.form.querySelector(".composer-row").hidden = !petPicker.hidden;
+  scheduleTicker();
   fitBar();
+}
+
+// ---------------------------------------------------------------- the one-line answer ticker
+
+let tickerTimer = null;
+let tickerOffset = 0;
+let tickerHold = 0; // pause (ms timestamp) at the start/end, or after a manual scroll
+let tickerHover = false;
+
+function scheduleTicker() {
+  if (!strip || tickerTimer) return;
+  tickerTimer = setTimeout(() => {
+    tickerTimer = null;
+    renderTicker();
+  }, 60);
+}
+
+/** Markdown -> one plain line ("· " between paragraphs and list items). */
+function oneLine(markdown) {
+  return markdown
+    .replace(/```[\s\S]*?(```|$)/g, " [code] ")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s*([-*+•]|\d+[.)])\s+/gm, "")
+    .replace(/^\s*#+\s*/gm, "")
+    .replace(/[*_`~]/g, "")
+    .replace(/\|/g, " ")
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join("  ·  ");
+}
+
+function renderTicker() {
+  const body = ui.chat.querySelector(".msg.latest .body");
+  if (!body) return;
+  const chips = [...body.querySelectorAll(".card")].filter((c) => !c.classList.contains("image-card")).map((card) => {
+    const password = card.querySelector(".password");
+    const action = card.querySelector(".card-action");
+    const label = password ? `🔑 ${password.textContent}` : (card.querySelector(".card-title")?.textContent || "").trim();
+    const chip = el("button", { class: "tick-chip", type: "button", text: password ? `${label}  📋` : label, title: action ? action.textContent : label });
+    if (action) chip.addEventListener("click", () => action.click());
+    else chip.disabled = true;
+    return chip;
+  });
+  const status = body.querySelector(".status:not([hidden])");
+  const text = oneLine(body.getMarkdown?.() || "") || (status?.isConnected ? status.textContent : "");
+  const done = body.dataset.done === "1";
+  const signature = `${chips.map((c) => c.textContent).join("|")}#${text}#${done}`;
+  if (signature === strip.track.dataset.signature) return;
+  const wasDone = strip.track.dataset.done === "1";
+  strip.track.dataset.signature = signature;
+  strip.track.dataset.done = done ? "1" : "";
+  strip.track.replaceChildren(...chips, el("span", { class: "tick-text", text }));
+  strip.ticker.classList.toggle("thinking", !text && !chips.length);
+  if (done && !wasDone) {
+    // Finished: start from the beginning, pause, then scroll through.
+    tickerOffset = 0;
+    tickerHold = Date.now() + 1800;
+  }
+  moveTicker();
+}
+
+function tickerMax() {
+  const style = getComputedStyle(strip.ticker);
+  const visible = strip.ticker.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  return Math.max(0, strip.track.scrollWidth - visible);
+}
+
+function moveTicker() {
+  strip.track.style.transform = `translateX(${-Math.round(tickerOffset)}px)`;
+}
+
+function setupTicker() {
+  let lastFrame = performance.now();
+  const step = (now) => {
+    const dt = Math.min(100, now - lastFrame);
+    lastFrame = now;
+    requestAnimationFrame(step);
+    if (!strip || strip.answer.hidden) return;
+    const max = tickerMax();
+    if (max <= 0) {
+      if (tickerOffset) {
+        tickerOffset = 0;
+        moveTicker();
+      }
+      return;
+    }
+    if (strip.track.dataset.done !== "1") {
+      tickerOffset = max; // while answering, show the newest words
+      moveTicker();
+      return;
+    }
+    if (tickerHover || Date.now() < tickerHold) return;
+    if (tickerOffset >= max) {
+      // Reached the end: wait, then jump back to the start.
+      tickerOffset = 0;
+      tickerHold = Date.now() + 2200;
+    } else {
+      tickerOffset = Math.min(max, tickerOffset + (dt / 1000) * 45);
+      if (tickerOffset >= max) tickerHold = Date.now() + 2200;
+    }
+    moveTicker();
+  };
+  requestAnimationFrame(step);
+  strip.ticker.addEventListener("mouseenter", () => (tickerHover = true));
+  strip.ticker.addEventListener("mouseleave", () => (tickerHover = false));
+  strip.ticker.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      tickerOffset = Math.max(0, Math.min(tickerMax(), tickerOffset + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY)));
+      tickerHold = Date.now() + 4000;
+      moveTicker();
+    },
+    { passive: false },
+  );
 }
 
 function fitBar() {
