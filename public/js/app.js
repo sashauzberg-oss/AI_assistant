@@ -99,6 +99,9 @@ const units = () => (/^en-(US|LR|MM)$/i.test(navigator.language) ? "imperial" : 
 
 function scrollToBottom() {
   ui.chat.scrollTop = ui.chat.scrollHeight;
+  // In the desktop strip the latest answer scrolls inside its own two-line bubble.
+  const latest = desktop && ui.chat.querySelector(".msg.latest .body");
+  if (latest) latest.scrollTop = latest.scrollHeight;
 }
 
 function addUserMessage(text, image, source) {
@@ -118,7 +121,8 @@ function addAssistantMessage() {
   const body = el("div", { class: "body" });
   const statusLine = el("div", { class: "status" }, [el("span", { class: "dots", html: "<i></i><i></i><i></i>" }), el("span", { text: "Thinking…" })]);
   body.append(statusLine);
-  ui.chat.append(el("div", { class: "msg assistant" }, [pet.sprite({ className: "avatar" }), body]));
+  ui.chat.querySelector(".msg.latest")?.classList.remove("latest");
+  ui.chat.append(el("div", { class: "msg assistant latest" }, [pet.sprite({ className: "avatar" }), body]));
   scrollToBottom();
 
   let segment = null;
@@ -128,6 +132,7 @@ function addAssistantMessage() {
 
   // New content goes above the status line while it's showing, at the end once it's gone.
   const place = (node) => (statusLine.isConnected ? body.insertBefore(node, statusLine) : body.append(node));
+  body.getMarkdown = () => fullText; // the answer as written, for "open the full answer"
   const newSegment = () => {
     segment = el("div", { class: "text" });
     segmentText = "";
@@ -196,6 +201,7 @@ function addAssistantMessage() {
       if (frame) cancelAnimationFrame(frame);
       flush();
       statusLine.remove();
+      if (desktop) body.scrollTop = 0; // read the finished answer from the start
     },
     get text() {
       return fullText;
@@ -1002,10 +1008,12 @@ ui.input.addEventListener("input", () => {
 
 // ---------------------------------------------------------------- desktop: the floating bar
 
-let panel = null;
-let panelOpen = false;
+// Under the bar there is only a slim strip (at most 50px): the pet's latest answer in a
+// two-line speech bubble, plus compact music controls and timers.
+let strip = null;
+let answerDismissed = false;
 
-/** Rearrange the page into a Spotlight-style bar: input on top, everything else below it. */
+/** Rearrange the page into a Spotlight-style bar with a slim strip underneath. */
 function setupBar() {
   const appEl = $(".app");
   const row = ui.form.querySelector(".composer-row");
@@ -1023,39 +1031,38 @@ function setupBar() {
   row.prepend(el("span", { class: "grip", title: "Drag to move Nova", "aria-hidden": "true" }));
   row.append(pin, $("#btn-settings"));
 
-  const collapse = el("button", { class: "icon-btn small", type: "button", "data-icon": "chevron-up", title: "Hide the conversation" });
-  collapse.addEventListener("click", () => {
-    panelOpen = false;
-    renderPanel();
+  const open = el("button", { class: "icon-btn small", type: "button", "data-icon": "expand", title: "Open the full answer" });
+  open.addEventListener("click", () => {
+    const text = latestAnswerText();
+    if (text) desktop.showAnswer({ html: renderMarkdown(text), text, pet: { name: pet.name, frames: pet.frames() } });
+  });
+  const dismiss = el("button", { class: "icon-btn small", type: "button", "data-icon": "x", title: "Hide this answer" });
+  dismiss.addEventListener("click", () => {
+    answerDismissed = true;
+    renderStrip();
     ui.input.focus();
   });
-  ui.speakBtn.classList.add("small");
-  $("#btn-new").classList.add("small");
-  panel = el("section", { class: "panel", hidden: true }, [
-    el("div", { class: "panel-head" }, [el("span", { text: "Conversation" }), el("span", { class: "spacer" }), ui.speakBtn, $("#btn-new"), collapse]),
-    ui.chat,
-  ]);
-  const expand = el("button", { class: "icon-btn", type: "button", "data-icon": "chevron-down", title: "Show the conversation", hidden: true });
-  expand.addEventListener("click", () => {
-    panelOpen = true;
-    renderPanel();
-  });
-  row.insertBefore(expand, pin);
-  panel.expandButton = expand;
+  const answer = el("div", { class: "strip-answer" }, [ui.chat, el("div", { class: "strip-tools" }, [open, dismiss])]);
+  const side = el("div", { class: "strip-side" }, [$("#player"), $("#timers")]);
+  strip = el("section", { class: "strip", hidden: true }, [answer, side]);
+  strip.answer = answer;
+  strip.side = side;
 
-  appEl.replaceChildren(ui.form, petPicker, $("#player"), $("#timers"), panel);
+  appEl.replaceChildren(ui.form, petPicker, strip);
   // The pet sits next to the bar, outside the frame.
   const wrap = el("div", { class: "bar-wrap" });
   appEl.before(wrap);
   wrap.append(petDock, appEl);
   applyIcons(appEl);
-  setSpeak(state.speak); // re-draw its icon after moving it
 
-  // A new message opens the conversation panel.
+  // A new message shows the strip again; music and timers show their compact controls.
   new MutationObserver(() => {
-    if (ui.chat.querySelector(".msg")) panelOpen = true;
-    renderPanel();
+    if (ui.chat.querySelector(".msg.latest")) answerDismissed = false;
+    renderStrip();
   }).observe(ui.chat, { childList: true });
+  new MutationObserver(() => renderStrip()).observe($("#timers"), { childList: true });
+  player.addEventListener("change", () => renderStrip());
+  new MutationObserver(() => renderStrip()).observe(petPicker, { attributes: true, attributeFilter: ["hidden"] });
 
   // The window grows and shrinks with the content.
   new ResizeObserver(() => fitBar()).observe(wrap);
@@ -1065,15 +1072,17 @@ function setupBar() {
     if (ui.input.value) {
       ui.input.value = "";
       autoGrow();
+    } else if (!petPicker.hidden) {
+      petPicker.hidden = true;
     } else {
       desktop.hide();
     }
   });
   desktop.onShown(() => {
-    // Coming back after a while: start from just the bar (the conversation is one click away).
+    // Coming back after a while: start from just the bar.
     if (Date.now() - state.lastActivity > 5 * 60 * 1000 && !state.busy) {
-      panelOpen = false;
-      renderPanel();
+      answerDismissed = true;
+      renderStrip();
     }
     ui.input.focus();
     ui.input.select();
@@ -1081,15 +1090,23 @@ function setupBar() {
   });
   desktop.onVisibility((visible) => (windowVisible = visible));
   timers.isHidden = () => !windowVisible;
-  renderPanel();
+  renderStrip();
 }
 
-function renderPanel() {
-  if (!panel) return;
-  const hasMessages = !!ui.chat.querySelector(".msg");
-  panel.hidden = !(panelOpen && hasMessages);
-  panel.expandButton.hidden = !hasMessages || !panel.hidden;
-  if (!panel.hidden) ui.chat.scrollTop = ui.chat.scrollHeight;
+function latestAnswerText() {
+  const body = ui.chat.querySelector(".msg.latest .body");
+  return (body?.getMarkdown?.() || "").trim();
+}
+
+function renderStrip() {
+  if (!strip) return;
+  const hasAnswer = !!ui.chat.querySelector(".msg.latest") && !answerDismissed;
+  const hasPlayer = !$("#player").hidden;
+  const hasTimers = !!$("#timers").children.length;
+  strip.answer.hidden = !hasAnswer;
+  strip.side.hidden = !hasPlayer && !hasTimers;
+  // The pet picker uses the same space while it's open.
+  strip.hidden = !petPicker.hidden || (!hasAnswer && !hasPlayer && !hasTimers);
   fitBar();
 }
 

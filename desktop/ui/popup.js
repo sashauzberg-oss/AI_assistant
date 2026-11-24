@@ -26,8 +26,11 @@ const STATUS = { answer: "Reading your snip…", text: "Copying the text…", tr
 
 window.popup.onInit(({ thumb, hotkey, mode }) => {
   $("status-text").textContent = STATUS[mode] || STATUS.answer;
-  $("thumb").onload = fit;
-  $("thumb").src = thumb;
+  $("thumb").hidden = !thumb;
+  if (thumb) {
+    $("thumb").onload = fit;
+    $("thumb").src = thumb;
+  }
   $("footer").textContent = `Snip again anytime: ${hotkey}`;
   fit();
 });

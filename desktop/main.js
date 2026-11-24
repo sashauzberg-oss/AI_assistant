@@ -108,6 +108,7 @@ function createMainWindow() {
     setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused() || !mainWindow.isVisible()) return;
       if (settings.pinned || keepOpen || snipping || quitting) return;
+      if (popup && !popup.isDestroyed() && popup.isFocused()) return; // our own answer bubble isn't "somewhere else"
       mainWindow.hide();
     }, 150);
   });
@@ -343,7 +344,7 @@ export async function snip({ hideNova = false, mode = "answer" } = {}) {
 
 // ------------------------------------------------------------------ answer bubble
 
-function openPopup(shot) {
+function openPopup(shot, { onLoad } = {}) {
   if (popup) popup.destroy();
   const area = screen.getDisplayMatching(shot.rect).workArea;
   const width = 420;
@@ -376,7 +377,8 @@ function openPopup(shot) {
   lockDown(popup);
   const win = popup;
   win.webContents.once("did-finish-load", () => {
-    win.webContents.send("popup:init", { thumb: shot.image.dataUrl, hotkey: formatAccelerator(settings.hotkeys.snip), mode: shot.mode });
+    win.webContents.send("popup:init", { thumb: shot.image?.dataUrl || null, hotkey: formatAccelerator(settings.hotkeys.snip), mode: shot.mode });
+    onLoad?.(win);
     win.show();
   });
   win.on("closed", () => {
@@ -545,6 +547,15 @@ function setupIpc() {
     if (!fromMain(event)) return;
     rendererReady = true;
     while (pendingAsks.length) mainWindow.webContents.send("nova:ask-image", pendingAsks.shift());
+  });
+  // "Open the full answer" from the strip under the bar: show it in the answer bubble, next to the bar.
+  ipcMain.on("nova:show-answer", (event, answer) => {
+    if (!fromMain(event) || !answer || typeof answer.html !== "string") return;
+    const b = mainWindow.getBounds();
+    openPopup(
+      { rect: { x: b.x + 90, y: b.y + b.height - 10, width: 0, height: 0 }, mode: "answer" },
+      { onLoad: (win) => win.webContents.send("popup:update", { pet: answer.pet, html: answer.html, text: answer.text, done: true }) },
+    );
   });
   ipcMain.on("nova:popup-update", (event, update) => {
     if (fromMain(event) && popup && !popup.isDestroyed()) popup.webContents.send("popup:update", update);

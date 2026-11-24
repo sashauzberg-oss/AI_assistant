@@ -749,3 +749,72 @@ body.desktop .pet-picker { margin-top: 6px; background-image: linear-gradient(90
 /* room for the speech-bubble tails, and never a sideways scrollbar */
 .chat { overflow-x: hidden; padding-right: 16px; }
 body.desktop .chat { padding: 0 16px 6px 2px; }
+
+/* ---------- desktop: the slim strip under the bar (never more than 50px) ---------- */
+body.desktop .strip { display: flex; gap: 8px; align-items: stretch; margin-top: 3px; max-height: 46px; }
+body.desktop .strip[hidden], body.desktop .strip-answer[hidden], body.desktop .strip-side[hidden] { display: none !important; }
+body.desktop .strip-answer { position: relative; flex: 1; min-width: 0; display: flex; }
+body.desktop .strip-answer .chat { flex: 1; min-width: 0; max-height: none; overflow: visible; padding: 0 0 0 8px; }
+body.desktop .chat > :not(.latest) { display: none !important; }
+body.desktop .chat .msg { margin: 0; position: relative; animation: none; }
+body.desktop .chat .avatar { display: none; }
+body.desktop .chat .msg.assistant .body {
+  max-width: none; flex: 1; max-height: 46px; overflow-y: auto; overflow-x: hidden;
+  border-width: 8px; border-image: var(--bubble) 4 fill / 8px; padding: 0 46px 0 2px;
+  font-size: 14px; line-height: 15px;
+  filter: none;
+}
+body.desktop .chat .msg.assistant .body::before { display: none; }
+body.desktop .chat .msg.latest::before {
+  content: ""; position: absolute; left: -6px; top: 8px; width: 8px; height: 8px; z-index: 1;
+  background: var(--bubble-tail) 0 0 / 100% 100% no-repeat;
+}
+body.desktop .chat .msg.assistant .body::-webkit-scrollbar { width: 6px; }
+body.desktop .chat .msg.assistant .body::-webkit-scrollbar-thumb { border-width: 1px; }
+body.desktop .chat .text p, body.desktop .chat .text ul, body.desktop .chat .text ol, body.desktop .chat .text pre { margin: 0 0 4px; }
+body.desktop .chat .text h2, body.desktop .chat .text h3, body.desktop .chat .text h4 { margin: 0 0 2px; font-size: 1em; }
+body.desktop .chat .status { font-size: 13px; margin: 0; line-height: 15px; }
+body.desktop .chat .card { border-width: 6px; border-image-width: 6px; margin: 1px 0 3px; gap: 6px; filter: none; max-width: none; }
+body.desktop .chat .card .card-icon { width: 20px; height: 20px; font-size: 12px; }
+body.desktop .chat .card .card-icon svg { width: 13px; height: 13px; }
+body.desktop .chat .card .card-title { font-size: 13px; line-height: 14px; }
+body.desktop .chat .card .card-sub { font-size: 11px; line-height: 12px; }
+body.desktop .chat .card .card-action, body.desktop .chat .card .btn { padding: 1px 8px; font-size: 12px; }
+body.desktop .chat .password { font-size: 13px; }
+body.desktop .chat .weather-days, body.desktop .chat .image-card, body.desktop .chat .sources, body.desktop .chat .card .card-sub:empty { display: none; }
+body.desktop .chat .weather-now .big { font-size: 18px; }
+body.desktop .chat .weather-now .temp { font-size: 15px; }
+body.desktop .strip-tools { position: absolute; top: 4px; right: 4px; display: flex; z-index: 2; }
+body.desktop .strip-tools .icon-btn.small { width: 20px; height: 20px; background: var(--surface); }
+body.desktop .strip-tools .icon-btn.small svg { width: 12px; height: 12px; }
+
+body.desktop .strip-side { flex: none; width: 196px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+body.desktop .strip .player {
+  display: flex; align-items: center; gap: 4px; height: 22px; padding: 0; margin: 0;
+  background: none; border: 0; border-image: none; filter: none; flex-wrap: nowrap;
+}
+body.desktop .strip .player[hidden] { display: none !important; }
+body.desktop .strip .player-art { width: 20px; height: 20px; }
+body.desktop .strip .player-art svg { width: 12px; height: 12px; }
+body.desktop .strip .player-info { min-width: 0; flex: 1; }
+body.desktop .strip .player-title { font-size: 12px; line-height: 14px; }
+body.desktop .strip .player-sub, body.desktop .strip .player-viz, body.desktop .strip #player-link, body.desktop .strip .volume { display: none !important; }
+body.desktop .strip .player-controls { width: auto; gap: 0; }
+body.desktop .strip .player-controls .icon-btn { width: 22px; height: 22px; }
+body.desktop .strip .player-controls .icon-btn svg { width: 13px; height: 13px; }
+body.desktop .strip .timers { display: flex; gap: 4px; padding: 0; margin: 0; background: none; overflow-x: auto; flex-wrap: nowrap; }
+body.desktop .strip .timers:empty { display: none; }
+body.desktop .strip .timer { font-size: 12px; padding: 0 2px 0 6px; gap: 4px; box-shadow: inset 0 0 0 2px var(--line); flex: none; height: 22px; }
+body.desktop .strip .timer .icon-btn.small { width: 18px; height: 18px; }
+body.desktop .strip .timer svg { width: 11px; height: 11px; }
+
+/* the pet picker: one compact row */
+body.desktop .pet-picker { display: flex; align-items: center; gap: 6px; margin-top: 3px; padding: 0; background: none; }
+body.desktop .pet-picker[hidden] { display: none !important; }
+body.desktop .pet-picker-title { display: none; }
+body.desktop .pet-grid { display: flex; gap: 4px; }
+body.desktop .pet-choice { padding: 3px; gap: 0; }
+body.desktop .pet-choice .pet-sprite { width: 32px; height: 32px; }
+body.desktop .pet-choice span { display: none; }
+body.desktop .pet-name-row { margin: 0; flex: 1; font-size: 13px; }
+body.desktop .pet-name-row input { padding: 3px 6px; }

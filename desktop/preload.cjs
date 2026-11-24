@@ -20,5 +20,6 @@ contextBridge.exposeInMainWorld("novaDesktop", {
   onVisibility: (callback) => ipcRenderer.on("nova:visibility", (_event, visible) => callback(visible)),
   onAskImage: (callback) => ipcRenderer.on("nova:ask-image", (_event, payload) => callback(payload)),
   popupUpdate: (update) => ipcRenderer.send("nova:popup-update", update),
+  showAnswer: (answer) => ipcRenderer.send("nova:show-answer", answer),
   ready: () => ipcRenderer.send("nova:ready"),
 });
