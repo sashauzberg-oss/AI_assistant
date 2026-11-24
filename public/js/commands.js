@@ -1,0 +1,288 @@
+// Turns what the user typed or said into a command, without any AI.
+// Used for instant actions ("music", "stop", "next") and as the whole brain in offline mode.
+// Pure functions only (no DOM), so it can be unit-tested in Node.
+import { looksLikeMath } from "./calc.js";
+
+const WORD_NUMBERS = {
+  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, "forty-five": 45, fifty: 50,
+  sixty: 60, ninety: 90, couple: 2, few: 3,
+};
+const WORDS = Object.keys(WORD_NUMBERS).sort((a, b) => b.length - a.length).join("|");
+// A number (digits or words), an optional "of", a unit, and an optional "and a half".
+const DURATION_RE = new RegExp(
+  `(?:(?<![\\d.])(?<num>\\d+(?:\\.\\d+)?)|\\b(?<word>${WORDS}))(?:\\s*of)?\\s*-?\\s*` +
+    "(?<unit>hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?![a-z])(?<half>\\s+and\\s+a\\s+half)?",
+  "g",
+);
+
+function toNumber(word) {
+  return word in WORD_NUMBERS ? WORD_NUMBERS[word] : Number(word);
+}
+
+function unitSeconds(unit) {
+  if (/^h/.test(unit)) return 3600;
+  if (/^m/.test(unit)) return 60;
+  return 1;
+}
+
+/** "5 minutes", "1h30m", "an hour and a half", "90 sec", "1:30" -> seconds (or null). */
+export function parseDuration(text) {
+  let s = ` ${String(text).toLowerCase()} `;
+  let total = 0;
+  let found = false;
+  if (/\bhalf an? hour\b/.test(s)) {
+    total += 1800;
+    found = true;
+    s = s.replace(/\bhalf an? hour\b/, " ");
+  }
+  for (const m of s.matchAll(DURATION_RE)) {
+    const { num, word, unit, half } = m.groups;
+    const seconds = unitSeconds(unit);
+    total += toNumber(num ?? word) * seconds + (half ? seconds / 2 : 0);
+    found = true;
+  }
+  if (!found) {
+    const clock = s.match(/\b(\d{1,2}):(\d{2})\b/);
+    if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
+    const bare = s.match(/^\s*(\d+(?:\.\d+)?)\s*$/);
+    if (bare) return Number(bare[1]) * 60; // "timer 5" means five minutes
+    return null;
+  }
+  return total > 0 ? Math.round(total) : null;
+}
+
+/** Seconds from `now` until the next h:mm (12- or 24-hour clock). */
+export function secondsUntil(hours, minutes = 0, meridiem = "", now = new Date()) {
+  let h = hours % 24;
+  const ampm = meridiem.replace(/\./g, "").toLowerCase();
+  if (ampm === "pm" && h < 12) h += 12;
+  if (ampm === "am" && h === 12) h = 0;
+  const candidates = [h];
+  if (!ampm && hours <= 12) candidates.push((h + 12) % 24);
+  let best = Infinity;
+  for (const hour of candidates) {
+    const target = new Date(now);
+    target.setHours(hour, minutes, 0, 0);
+    if (target <= now) target.setDate(target.getDate() + 1);
+    best = Math.min(best, (target - now) / 1000);
+  }
+  return Math.round(best);
+}
+
+const SITES = {
+  youtube: "https://www.youtube.com",
+  google: "https://www.google.com",
+  gmail: "https://mail.google.com",
+  email: "https://mail.google.com",
+  mail: "https://mail.google.com",
+  maps: "https://www.google.com/maps",
+  "google maps": "https://www.google.com/maps",
+  drive: "https://drive.google.com",
+  "google drive": "https://drive.google.com",
+  docs: "https://docs.google.com",
+  calendar: "https://calendar.google.com",
+  translate: "https://translate.google.com",
+  "google translate": "https://translate.google.com",
+  news: "https://news.google.com",
+  netflix: "https://www.netflix.com",
+  spotify: "https://open.spotify.com",
+  facebook: "https://www.facebook.com",
+  instagram: "https://www.instagram.com",
+  twitter: "https://x.com",
+  x: "https://x.com",
+  reddit: "https://www.reddit.com",
+  wikipedia: "https://www.wikipedia.org",
+  amazon: "https://www.amazon.com",
+  github: "https://github.com",
+  linkedin: "https://www.linkedin.com",
+  tiktok: "https://www.tiktok.com",
+  twitch: "https://www.twitch.tv",
+  discord: "https://discord.com/app",
+  whatsapp: "https://web.whatsapp.com",
+  outlook: "https://outlook.live.com",
+  pinterest: "https://www.pinterest.com",
+  ebay: "https://www.ebay.com",
+  claude: "https://claude.ai",
+};
+
+export function resolveSite(name) {
+  const key = name.toLowerCase().replace(/^(the|my)\s+/, "").replace(/\s+(website|site|app|page)$/, "").trim();
+  if (SITES[key]) return { url: SITES[key], name: key };
+  if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(key)) return { url: `https://${key}`, name: key };
+  if (/^https?:\/\//.test(key)) return { url: key, name: key };
+  return { url: `https://duckduckgo.com/?q=${encodeURIComponent(`!ducky ${key}`)}`, name: key };
+}
+
+/** Lowercase, strip wake words, politeness and trailing punctuation. */
+export function normalizeCommand(text) {
+  return String(text)
+    .trim()
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/^(hey|ok|okay|yo)[,\s]+/, "")
+    .replace(/^nova\b[,:\s]*/, "")
+    .replace(/^(please|can you|could you|would you|will you|i want you to|i'd like you to)\s+/, "")
+    .replace(/^(please)\s+/, "")
+    .replace(/[\s,]+please$/, "")
+    .replace(/[.!?]+$/, "")
+    .trim();
+}
+
+const SCREEN_RE =
+  /\b(answer|solve|do|explain|translate|summari[sz]e) (this|that|it|these|the question|this question|my question|the problem|this problem)\b|\bwhat('s| is) (this|on my screen)\b|\b(look at|read|check|see|scan) (my|the|this) screen\b|\b(screenshot|snip)\b|\bwhat does (this|it) say\b|\bhelp me with this\b/;
+
+export function parseCommand(input) {
+  const s = normalizeCommand(input);
+  if (!s) return null;
+  let m;
+
+  if (/^(help|commands|what can you do|what can i say|\?)$/.test(s)) return { name: "help" };
+  if (/^(clear|clear (the )?chat|new chat|start over|reset)$/.test(s)) return { name: "clear" };
+  if (SCREEN_RE.test(s)) return { name: "answer_screen" };
+
+  // ----- music controls -----
+  if (/^(stop|stop (the )?music|stop playing|stop the radio|silence|shut up|be quiet|quiet|turn (it|the music) off|music off)$/.test(s)) {
+    return { name: "music_control", args: { action: "stop" } };
+  }
+  if (/^(pause|pause (the )?(music|song|radio)|hold on)$/.test(s)) return { name: "music_control", args: { action: "pause" } };
+  if (/^(resume|unpause|continue|play|keep playing|resume (the )?(music|song|radio)|continue (the )?(music|song))$/.test(s)) {
+    return { name: "music_control", args: { action: "resume" } };
+  }
+  if (/^(next|skip|skip it|next (one|song|track|station)|skip (this )?(one|song|track|station)|change (the )?(song|station)|another (one|song|station))$/.test(s)) {
+    return { name: "music_control", args: { action: "next" } };
+  }
+  if (/^(volume up|louder|turn it up|turn up the (music|volume)|increase (the )?volume)$/.test(s)) {
+    return { name: "music_control", args: { action: "volume", delta: 15 } };
+  }
+  if (/^(volume down|quieter|softer|turn it down|turn down the (music|volume)|lower (the )?volume|decrease (the )?volume)$/.test(s)) {
+    return { name: "music_control", args: { action: "volume", delta: -15 } };
+  }
+  if (/^mute$/.test(s)) return { name: "music_control", args: { action: "volume", volume: 0 } };
+  if ((m = s.match(/^(?:set (?:the )?)?volume (?:to |at )?(\d{1,3})\s*%?$/))) {
+    return { name: "music_control", args: { action: "volume", volume: Math.min(100, Number(m[1])) } };
+  }
+
+  // ----- YouTube -----
+  if ((m = s.match(/^(?:play|watch|search|find|show me|put on)?\s*(.+?) on youtube$/)) || (m = s.match(/^youtube\s+(.+)$/))) {
+    return { name: "youtube", args: { query: m[1] } };
+  }
+
+  // ----- timers & alarms -----
+  if (/^(cancel|stop|clear|delete) (all )?(the |my )?(timers?|alarms?|reminders?)$/.test(s)) return { name: "cancel_timers" };
+  if (/^((show|list|check) )?(my )?(timers?|alarms?|reminders?)$/.test(s) || /^how much time (is )?left/.test(s)) {
+    return { name: "list_timers" };
+  }
+  if ((m = s.match(/^remind me (?:in|after) (.+?) (?:to|that|about) (.+)$/))) {
+    const seconds = parseDuration(m[1]);
+    if (seconds) return { name: "timer", args: { seconds, label: m[2] } };
+  }
+  if ((m = s.match(/^remind me (?:to |about )?(.+?) in (.+)$/))) {
+    const seconds = parseDuration(m[2]);
+    if (seconds) return { name: "timer", args: { seconds, label: m[1] } };
+  }
+  if ((m = s.match(/^(?:set (?:an? )?|wake me up |remind me )?(?:alarm )?(?:for |at )(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?(?:\s+(?:to|for)\s+(.+))?$/))
+    && /alarm|wake|remind/.test(s)) {
+    return {
+      name: "alarm",
+      args: { hours: Number(m[1]), minutes: Number(m[2] || 0), meridiem: m[3] || "", label: m[4] || "Alarm" },
+    };
+  }
+  if (/\b(timer|countdown)\b/.test(s)) {
+    const rest = s.replace(/\b(set|start|a|an|timer|countdown|for|me)\b/g, " ");
+    const labelMatch = s.match(/\b(?:for|called|named|labeled)\s+(?:the\s+)?([a-z][a-z ]+)$/);
+    const seconds = parseDuration(rest);
+    if (seconds) {
+      const label = labelMatch && !parseDuration(labelMatch[1]) ? labelMatch[1] : "Timer";
+      return { name: "timer", args: { seconds, label } };
+    }
+  }
+
+  // ----- music: play something -----
+  if (/^(music|songs?|tunes|radio|some music|play (some )?music|play something|play a song|put on (some )?music|i want (to hear )?(some )?music)$/.test(s)) {
+    return { name: "music_play", args: { query: "" } };
+  }
+  if ((m = s.match(/^(?:play|put on|start playing|listen to|i want to (?:hear|listen to)|turn on|blast)\s+(.+)$/))) {
+    return { name: "music_play", args: { query: m[1] } };
+  }
+  if ((m = s.match(/^(.+?) (music|songs|radio|playlist)$/)) && m[1].split(" ").length <= 4 && !/^(what|who|how|why|where|when)\b/.test(m[1])) {
+    return { name: "music_play", args: { query: m[1] } };
+  }
+
+  // ----- time & date -----
+  if (/^(what('s| is) the )?time( is it)?( now| right now)?$|^what time is it|^(the )?current time$/.test(s)) return { name: "time" };
+  if (/^(what('s| is) )?(the |today's )?date( today)?$|^what day is (it|today)|^what's today|^what is today/.test(s)) return { name: "date" };
+
+  // ----- weather -----
+  if ((m = s.match(/\b(?:weather|forecast|temperature|how (?:hot|cold|warm) is it|is it (?:going to )?(?:rain|snow)(?:ing)?)\b(?:\s+(?:like\s+)?(?:today\s+|tomorrow\s+|now\s+)?(?:in|for|at|near)\s+(.+?))?(?:\s+(?:today|tomorrow|now|this week|right now))?$/))) {
+    return { name: "weather", args: { location: (m[1] || "").trim() } };
+  }
+
+  // ----- fun -----
+  if (/\b(joke|make me laugh|something funny|cheer me up)\b/.test(s)) return { name: "joke" };
+  if (/\b(flip a coin|coin flip|toss a coin|heads or tails)\b/.test(s)) return { name: "coin" };
+  if ((m = s.match(/\broll (?:a |an |(\d+) )?(?:(\d+)-sided )?(?:dice|die|d(\d+))\b/))) {
+    return { name: "dice", args: { count: Math.min(10, Number(m[1] || 1)), sides: Number(m[2] || m[3] || 6) } };
+  }
+  if ((m = s.match(/\b(?:random number|pick a number)(?: (?:between|from) (-?\d+) (?:and|to) (-?\d+))?/))) {
+    return { name: "random", args: { min: Number(m[1] ?? 1), max: Number(m[2] ?? 100) } };
+  }
+
+  // ----- notes / to-do -----
+  if ((m = s.match(/^(?:add|put) (.+?) (?:to|on) (?:my |the )?(?:list|notes|to-?do(?: list)?|shopping list|grocery list)$/))) {
+    return { name: "note_add", args: { text: m[1] } };
+  }
+  if ((m = String(input).trim().match(/^(?:(?:take|make|write) (?:a )?note|note|remember|remember that|jot down)[:\s,]+(.+)$/i))) {
+    return { name: "note_add", args: { text: m[1].trim() } };
+  }
+  if (/^(clear|delete|erase) (all )?(my |the )?(notes|list|to-?do list)$/.test(s)) return { name: "note_clear" };
+  if ((m = s.match(/^(?:delete|remove|cross off) (?:note |item |number )?#?(\d+)(?: from (?:my |the )?(?:list|notes))?$/))) {
+    return { name: "note_remove", args: { index: Number(m[1]) } };
+  }
+  if (/^((show|list|read|open|see|check) )?(me )?(my |the )?(notes|list|to-?do(s| list)?|shopping list|grocery list)$|^what('s| is) on my list$|^what are my notes$/.test(s)) {
+    return { name: "note_list" };
+  }
+
+  // ----- appearance -----
+  if ((m = s.match(/\b(dark|light|night|day) (mode|theme)\b/))) {
+    return { name: "theme", args: { theme: m[1] === "dark" || m[1] === "night" ? "dark" : "light" } };
+  }
+
+  // ----- web -----
+  if ((m = s.match(/^(?:open|go to|launch|visit|take me to|bring up)\s+(.+)$/))) return { name: "open", args: resolveSite(m[1]) };
+  if ((m = s.match(/^(?:search(?: the web| google| online)?(?: for)?|google|look up|bing)\s+(.+)$/))) return { name: "search", args: { query: m[1] } };
+
+  // ----- speech -----
+  if ((m = String(input).trim().match(/^(?:nova[,\s]+)?(?:say|repeat after me|repeat)[:,\s]+(.+)$/i))) return { name: "say", args: { text: m[1] } };
+
+  // ----- dictionary -----
+  if ((m = s.match(/^(?:define|definition of|meaning of|what's the meaning of|what is the meaning of)\s+(?:the word\s+)?([a-z'-]+)$/)) ||
+      (m = s.match(/^what does (?:the word )?([a-z'-]+) mean$/))) {
+    return { name: "define", args: { word: m[1] } };
+  }
+
+  // ----- math -----
+  const mathText = s.replace(/^(what('s| is)|calculate|calc|compute|solve|how much is|evaluate)\s+/, "").replace(/=\s*$/, "");
+  if (looksLikeMath(mathText)) return { name: "calc", args: { expression: mathText } };
+
+  // ----- small talk -----
+  if (/^(hi|hello|hey|hiya|howdy|yo|sup|good (morning|afternoon|evening))\b/.test(s)) return { name: "greet" };
+  if (/^(thanks|thank you|thx|ty|cheers)\b/.test(s)) return { name: "thanks" };
+  if (/^how are you/.test(s)) return { name: "how_are_you" };
+  if (/^(who|what) are you$|^what('s| is) your name$/.test(s)) return { name: "about" };
+
+  // ----- encyclopedia -----
+  if ((m = s.match(/^(?:who|what|where) (?:is|was|are|were) (?:a |an |the )?(.+)$/)) ||
+      (m = s.match(/^(?:tell me about|wiki(?:pedia)?|look up|info on|information about)\s+(.+)$/))) {
+    return { name: "wiki", args: { query: m[1] } };
+  }
+
+  return null;
+}
+
+/** Commands that run instantly in the browser even when the AI is available. */
+export function isInstant(command) {
+  if (!command) return false;
+  if (["music_control", "help", "clear", "theme", "cancel_timers", "list_timers"].includes(command.name)) return true;
+  return command.name === "music_play" && command.args.query === "";
+}
