@@ -23,6 +23,8 @@ Nova is an AI assistant for your browser or desktop. Type or say what you want a
 
 **Your pixel pet answers everything.** A little pixel-art pet sits next to the typing bar and answers your questions in pixel speech bubbles. It blinks, talks while it answers, thinks while it waits, bobs along to music and dozes off when you're away. Click it to pick another animal (cat, dog, bunny, fox, frog or penguin) and give it a name, or just say “switch to a penguin” or “call yourself Pixel”.
 
+**Auto-correct.** Typos are fixed as you type, like on a phone: “teh” becomes “the” when you press space, and “dont” becomes “don't”. A little chip shows what changed; click it or press Backspace right away to undo, and Nova won't change that word again. Names, links, ALL CAPS and your pet's name are left alone. Turn it off in Settings › Personal.
+
 It also has voice control (including a hands-free mode with the wake word **“Nova”**), read-aloud answers, light and dark themes, and a layout that works on phones.
 
 There are two ways to run it:
@@ -62,7 +64,7 @@ Shortcut: **Ctrl+Shift+S** opens Nova's snipper.
 
 Download it from the [latest release](https://github.com/sashauzberg-oss/AI_assistant/releases/latest): `Nova-Setup.exe` (Windows), `Nova-Mac.dmg` (Mac) or `Nova-Linux.AppImage` (Linux).
 
-**The typing bar.** Press **Alt+Space** (⌥Space on a Mac) anywhere and a slim typing bar appears near the top of the screen. Type and press Enter: the bar grows downward to show the answer, music player and timers. Press **Esc** or click somewhere else to put it away. The 📌 button keeps it open, the ⌃ button folds the conversation away, and you can drag the bar by its round logo.
+**The typing bar.** Press **Alt+Space** (⌥Space on a Mac) anywhere and a slim typing bar appears near the top of the screen, with your pet sitting next to it. Type and press Enter: your pet answers in a two-line speech bubble just under the bar (scroll it, click ⤢ to open the whole answer, or ✕ to hide it), next to compact music controls and timers. Nothing ever takes more than 50px below the bar. Press **Esc** or click somewhere else to put it away. The 📌 button keeps it open, and you can drag the bar by its dotted handle.
 
 **Snip anything.** Press **Ctrl+Shift+Space** (⌘⇧Space on a Mac) in any app: a game, a PDF, a quiz, your code editor.
 
@@ -158,6 +160,8 @@ public/js/tools.js   Everything Nova can do (music, screen capture, timers, weat
 public/js/commands.js  Understands built-in commands without AI (offline mode, instant controls)
 public/js/extras.js  Unit and currency conversion parsing, password generator
 public/js/pets.js    The pixel pets: 16×16 sprites drawn in code, animation, and the pet picker
+public/js/autocorrect.js  Auto-correct: dictionary lookup, closest-word suggestions, undo
+public/data/words.txt  The auto-correct dictionary (about 63,000 words from SCOWL; see WORDS-LICENSE.txt)
 public/fonts/        Pixelify Sans and Press Start 2P pixel fonts (SIL Open Font License)
 public/js/music.js   Music player; synth.js generates offline music
 public/js/screen.js  The snipping tool

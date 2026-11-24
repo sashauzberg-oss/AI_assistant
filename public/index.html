@@ -59,6 +59,7 @@
         <button id="btn-attach" class="icon-btn" type="button" data-icon="paperclip" title="Attach an image"></button>
         <input id="file" type="file" accept="image/*" hidden>
         <textarea id="input" rows="1" placeholder="Ask anything… try “music”, “answer this”, or “timer 5 min”" aria-label="Message"></textarea>
+        <button id="ac-hint" class="ac-hint" type="button" hidden title="Auto-corrected. Click (or press Backspace) to undo"></button>
         <button id="btn-mic" class="icon-btn" type="button" data-icon="mic" title="Speak"></button>
         <button id="btn-send" class="send-btn" type="submit" data-icon="send" title="Send"></button>
         <button id="btn-stop" class="send-btn stop" type="button" data-icon="stop" title="Stop" hidden></button>
@@ -116,6 +117,7 @@
           <span>Home city (used for “weather” when you don't name a place)</span>
           <input id="settings-city" type="text" placeholder="e.g. Chicago" autocomplete="off">
         </label>
+        <label class="check"><input id="settings-autocorrect" type="checkbox"> Auto-correct my typing</label>
         <div class="row">
           <span id="settings-memories" class="muted small"></span>
           <button id="settings-clear-memories" class="btn" type="button">Clear memories</button>

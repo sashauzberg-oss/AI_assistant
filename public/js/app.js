@@ -9,7 +9,8 @@ import { Voice } from "./voice.js";
 import { Timers, chime } from "./timers.js";
 import { createToolbox } from "./tools.js";
 import { Conversation, NoKeyError } from "./ai.js";
-import { PetBuddy, createPetPicker } from "./pets.js";
+import { PetBuddy, createPetPicker, PETS } from "./pets.js";
+import { attachAutocorrect } from "./autocorrect.js";
 
 applyIcons();
 
@@ -733,7 +734,8 @@ async function askAboutSnip(image, mode, source, { label, mirror } = {}) {
       if (desktop) await desktop.copy(answer);
       else await navigator.clipboard.writeText(answer);
       mirror?.({ copied: true });
-      systemNote("📋 Copied the text to your clipboard.");
+      // Add the note to the same answer, so the copied text stays in view.
+      ui.chat.querySelector(".msg.latest .body")?.append(el("div", { class: "copied-note", text: "📋 Copied to your clipboard" }));
     } catch {
       systemNote("Couldn't copy automatically. Say **copy that** to copy it.");
     }
@@ -828,15 +830,53 @@ function autoGrow() {
   ui.input.style.height = `${Math.min(ui.input.scrollHeight, 180)}px`;
 }
 ui.input.addEventListener("input", autoGrow);
+
+// ---------------------------------------------------------------- auto-correct
+
+const acHint = $("#ac-hint");
+let acHintTimer = null;
+const learnedWords = new Set(storage.get("learnedWords", []).map((w) => w.toLowerCase()));
+const autocorrectOn = () => storage.get("autocorrect", /^en\b/i.test(navigator.language || "en"));
+const autocorrect = attachAutocorrect(ui.input, {
+  enabled: autocorrectOn,
+  // Never "fix" words you've undone before, or your pet's name.
+  protect: (word) => {
+    const w = word.toLowerCase();
+    return learnedWords.has(w) || pet.name.toLowerCase().split(/\s+/).includes(w) || Object.values(PETS).some((p) => p.name.toLowerCase() === w);
+  },
+  onCorrect: (fix) => {
+    acHint.textContent = `${fix.original} → ${fix.replacement} ↶`;
+    acHint.hidden = false;
+    clearTimeout(acHintTimer);
+    acHintTimer = setTimeout(() => (acHint.hidden = true), 4000);
+  },
+  onRevert: () => (acHint.hidden = true),
+  onUndo: (fix) => {
+    learnedWords.add(fix.original.toLowerCase());
+    storage.set("learnedWords", [...learnedWords].slice(-500));
+    acHint.hidden = true;
+    ui.input.focus();
+  },
+});
+acHint.addEventListener("mousedown", (e) => e.preventDefault()); // keep the caret in the text box
+acHint.addEventListener("click", () => autocorrect.undo());
+$("#settings-autocorrect").checked = autocorrectOn();
+$("#settings-autocorrect").addEventListener("change", (e) => storage.set("autocorrect", e.target.checked));
+
+function send() {
+  autocorrect.flush(); // fix the last word too
+  acHint.hidden = true;
+  submit(ui.input.value, "text");
+}
 ui.input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
-    submit(ui.input.value, "text");
+    send();
   }
 });
 ui.form.addEventListener("submit", (e) => {
   e.preventDefault();
-  submit(ui.input.value, "text");
+  send();
 });
 
 $("#btn-new").addEventListener("click", () => {

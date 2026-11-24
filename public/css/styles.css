@@ -818,3 +818,14 @@ body.desktop .pet-choice .pet-sprite { width: 32px; height: 32px; }
 body.desktop .pet-choice span { display: none; }
 body.desktop .pet-name-row { margin: 0; flex: 1; font-size: 13px; }
 body.desktop .pet-name-row input { padding: 3px 6px; }
+
+/* auto-correct: a small "teh → the ↶" chip; click it to undo */
+.ac-hint {
+  flex: none; align-self: center; border: 0; cursor: pointer; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+  font: 12px var(--font); padding: 3px 7px; margin: 0 2px; color: var(--text);
+  background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); clip-path: var(--px-corners);
+  animation: ac-pop 0.25s steps(2, end);
+}
+.ac-hint:hover { background: var(--accent); color: #fff; }
+@keyframes ac-pop { from { transform: translateY(4px); opacity: 0; } to { transform: none; opacity: 1; } }
+.copied-note { color: var(--ok); font-weight: 700; font-size: 0.9em; margin-top: 4px; }
