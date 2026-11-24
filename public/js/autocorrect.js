@@ -165,6 +165,13 @@ export class Corrector {
    */
   correctAt(text, end, { protect = () => false } = {}) {
     const before = text.slice(0, end);
+    // Only fix English: if most of the other words aren't English, leave the text alone.
+    // (Names, ALL CAPS and links don't count: only plain lowercase words do.)
+    const plain = text
+      .split(/\s+/)
+      .map((t) => t.replace(/[.,!?;:"“”()]+$/g, "").replace(/^["“(]+/, ""))
+      .filter((t) => /^[a-z]{2,}$/.test(t));
+    if (plain.length >= 3 && plain.filter((w) => this.isKnown(w)).length < plain.length / 2) return null;
     const m = before.match(/(^|[\s(“"'])([A-Za-z]+)$/);
     if (!m) return null;
     const original = m[2];

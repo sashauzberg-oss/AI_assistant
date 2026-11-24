@@ -28,3 +28,10 @@ test("only corrects plain words in context", () => {
   assert.equal(at("email bob@teh ", "teh"), null);
   assert.equal(corrector.correctAt("call Mochie ", 11, { protect: (w) => w === "Mochie" }), null);
 });
+
+test("only corrects English text", () => {
+  const fix = (text) => corrector.correctAt(text, text.length)?.replacement ?? null;
+  assert.equal(fix("can you play some msic"), "music");
+  assert.equal(fix("call Mochi at exmaple.com and NASA teh"), "the");
+  assert.equal(fix("quiero escuchar musica tranquila esta nohce"), null);
+});

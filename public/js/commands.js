@@ -352,7 +352,9 @@ function fuzzWord(word, vocab, isWord) {
   let tie = false;
   for (const candidate of vocab) {
     if (Math.abs(candidate.length - word.length) > max) continue;
-    const d = editDistance(word, candidate, max);
+    let d = editDistance(word, candidate, max);
+    // Scrambled letters ("mucis" -> "music") count as a near miss.
+    if (d > max && word.length >= 4 && word.length === candidate.length && word[0] === candidate[0] && [...word].sort().join("") === [...candidate].sort().join("")) d = max;
     if (d > max || (d > 1 && candidate[0] !== word[0])) continue;
     const score = d * 10 + (candidate[0] === word[0] ? 0 : 5);
     if (!best || score < best.score) {
@@ -370,9 +372,12 @@ function fixMusicQuery(command, isWord) {
   if (command?.name !== "music_play" || !command.args.query) return command;
   const words = command.args.query.split(/\s+/);
   if (words.length > 3) return command;
-  const genres = new Set(GENRE_WORDS);
+  const genres = new Set([...GENRE_WORDS, "music", "songs", "song", "radio", "something"]);
   const fixed = words.map((w) => fuzzWord(w, genres, isWord)).join(" ");
-  return fixed === command.args.query ? command : { ...command, args: { query: fixed }, understood: `play ${fixed}` };
+  if (fixed === command.args.query) return command;
+  // "play msic" -> just "music": play right away, like typing "music".
+  const generic = fixed.split(" ").every((w) => ["music", "songs", "song", "radio", "some", "something"].includes(w));
+  return { ...command, args: { query: generic ? "" : fixed }, understood: `play ${fixed}` };
 }
 
 /**

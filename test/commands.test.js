@@ -192,3 +192,16 @@ test("18 pets", async () => {
   assert.deepEqual(parseCommand("be a raccoon").args, { kind: "raccoon" });
   assert.deepEqual(parseCommand("i want a tortoise").args, { kind: "turtle" });
 });
+
+test("misspelled music requests", async () => {
+  const fs = await import("node:fs");
+  const { Corrector } = await import("../public/js/autocorrect.js");
+  const dictionary = new Corrector(fs.readFileSync(new URL("../public/data/words.txt", import.meta.url), "utf8"));
+  const parse = (t) => parseCommand(t, { isWord: (w) => dictionary.isKnown(w) });
+  for (const typo of ["msic", "musci", "mucis", "muisc", "play msic", "play some msic"]) {
+    const command = parse(typo);
+    assert.equal(command?.name, "music_play", typo);
+    assert.equal(command.args.query, "", typo);
+    assert.equal(isInstant(command), true, typo);
+  }
+});

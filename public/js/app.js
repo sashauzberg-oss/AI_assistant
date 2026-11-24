@@ -844,7 +844,8 @@ ui.input.addEventListener("input", autoGrow);
 const acHint = $("#ac-hint");
 let acHintTimer = null;
 const learnedWords = new Set(storage.get("learnedWords", []).map((w) => w.toLowerCase()));
-const autocorrectOn = () => storage.get("autocorrect", /^en\b/i.test(navigator.language || "en"));
+// On unless turned off in Settings; it only ever touches English text.
+const autocorrectOn = () => storage.get("autocorrect", true);
 const autocorrect = attachAutocorrect(ui.input, {
   enabled: autocorrectOn,
   // Never "fix" words you've undone before, or your pet's name.
