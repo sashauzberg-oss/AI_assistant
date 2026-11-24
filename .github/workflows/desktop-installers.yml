@@ -1,0 +1,92 @@
+# Builds the Nova desktop installers on GitHub's Windows, Mac and Linux machines and
+# publishes them as a GitHub Release, so they can be downloaded from:
+#   https://github.com/<owner>/<repo>/releases/latest
+name: Desktop installers
+
+on:
+  push:
+    branches: [main, claude/charming-noether-kcn10y]
+    paths:
+      - "desktop/**"
+      - "public/**"
+      - "lib/**"
+      - "server.js"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-installers.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-installers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build installer
+        run: npx electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nova-${{ matrix.os }}
+          path: |
+            dist/Nova-Setup.exe
+            dist/Nova-Mac.dmg
+            dist/Nova-Linux.AppImage
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-v1.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Nova desktop app (build ${{ github.run_number }})
+          make_latest: "true"
+          files: installers/*
+          body: |
+            **Download Nova**
+
+            - **Windows**: `Nova-Setup.exe`
+            - **Mac** (Apple Silicon and Intel): `Nova-Mac.dmg`
+            - **Linux**: `Nova-Linux.AppImage`
+
+            After installing, open Nova, click the sliders icon and paste your Anthropic API key.
+            Then press **Ctrl+Shift+Space** (⌘⇧Space on a Mac) in any app to snip a question and get the answer.
+
+            These installers aren't code-signed. On Windows, if you see "Windows protected your PC", click **More info › Run anyway**.
+            On a Mac, if Nova won't open, go to System Settings › Privacy & Security and click **Open Anyway**.

@@ -40,7 +40,8 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "desktop/assets/icon.png"
+      "icon": "desktop/assets/icon.png",
+      "artifactName": "Nova-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -48,9 +49,19 @@
       "createDesktopShortcut": true
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
       "category": "public.app-category.productivity",
       "icon": "desktop/assets/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "artifactName": "Nova-Mac.${ext}",
       "extendInfo": {
         "NSScreenCaptureUsageDescription": "Nova reads the part of the screen you snip so it can answer the question."
       }
@@ -58,7 +69,9 @@
     "linux": {
       "target": "AppImage",
       "category": "Utility",
-      "icon": "desktop/assets/icon.png"
-    }
+      "icon": "desktop/assets/icon.png",
+      "artifactName": "Nova-Linux.${ext}"
+    },
+    "publish": null
   }
 }
