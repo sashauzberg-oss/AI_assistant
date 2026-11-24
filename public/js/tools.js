@@ -60,6 +60,7 @@ const HELP = `Here's what I can do. Just type or say it:
 - **Passwords**: “generate a password”, “make a 24 character password”
 - **Notes**: “note buy milk”, “show my notes”, “delete note 2”
 - **Web & apps**: “open YouTube”, “search best pizza near me”, “cat videos on YouTube”, and in the desktop app “open Spotify” or “open calculator”
+- **Your pet**: click the pet next to the typing bar, or say “switch to a dog”, “be a penguin”, “call yourself Pixel”
 - **Fun**: “tell me a joke”, “flip a coin”, “roll a dice”
 - **Hands-free** (browser): turn on the 📡 button and say “Nova, …”`;
 
@@ -175,7 +176,7 @@ function linkCard(url, title, sub) {
 
 // ---------- the toolbox ----------
 
-export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, getLastAnswer = () => "" }) {
+export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, pet, getLastAnswer = () => "", openPetPicker = () => {} }) {
   const desktop = window.novaDesktop || null;
   const notes = {
     all: () => storage.get("notes", []),
@@ -509,13 +510,25 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
       case "help":
         return HELP;
       case "greet":
-        return "Hi! 👋 What can I do for you? Try “music”, “weather”, or “answer this”.";
+        return `${pet ? `${pet.persona.sound} ` : ""}Hi! What can I do for you? Try “music”, “weather”, or “answer this”.`;
       case "thanks":
         return "Anytime! 😊";
       case "how_are_you":
         return "I'm running smoothly, thanks for asking! How can I help?";
       case "about":
-        return "I'm **Nova**, your personal assistant. I can play music, read your screen, set timers, check the weather and a lot more. Type **help** to see everything.";
+        return pet
+          ? `${pet.persona.sound} I'm **${pet.name}**, your pixel ${pet.persona.animal} and personal assistant. I can play music, read your screen, set timers, check the weather and a lot more. Click me to pick another pet, or type **help** to see everything.`
+          : "I'm **Nova**, your personal assistant. Type **help** to see everything.";
+      case "pet": {
+        if (!pet?.setKind(a.kind)) return "I don't know that animal yet.";
+        return `${pet.persona.sound} Ta-da! I'm **${pet.name}** the ${pet.persona.animal} now.`;
+      }
+      case "pet_picker":
+        openPetPicker();
+        return "Pick a pet! Click one of the animals, and give me a name if you like.";
+      case "pet_name":
+        pet?.setName(a.name);
+        return `${pet ? pet.persona.sound : ""} I love it! Call me **${a.name.trim().slice(0, 24)}**.`;
       case "music_play": {
         const result = await player.play(a.query || "");
         if (result.ok && player.current) ui.addCard(musicCard(player.current, result.blocked));

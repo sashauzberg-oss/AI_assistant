@@ -3,10 +3,22 @@
 const $ = (id) => document.getElementById(id);
 let plainText = "";
 
+// The pet (sent as image frames by the Nova window): talks while answering, blinks when idle.
+let frames = null;
+let talking = false;
+let tick = 0;
+setInterval(() => {
+  if (!frames) return;
+  tick++;
+  const img = $("pet");
+  if (talking) img.src = tick % 3 ? frames.talk : frames.normal;
+  else img.src = tick % 40 === 0 ? frames.blink : frames.normal;
+}, 120);
+
 function fit() {
   requestAnimationFrame(() => {
     const header = document.querySelector("header").offsetHeight;
-    window.popup.resize(Math.ceil(header + $("card").getBoundingClientRect().height) + 6); // + borders and rounding
+    window.popup.resize(Math.ceil(header + $("card").getBoundingClientRect().height) + 30); // + the pixel frame and rounding
   });
 }
 
@@ -21,6 +33,12 @@ window.popup.onInit(({ thumb, hotkey, mode }) => {
 });
 
 window.popup.onUpdate((update) => {
+  if (update.pet) {
+    frames = update.pet.frames;
+    $("pet").src = frames.normal;
+    $("pet-name").textContent = update.pet.name.toUpperCase();
+  }
+  if (update.text) talking = true;
   if (update.status !== undefined) {
     $("status").hidden = !update.status;
     $("status-text").textContent = update.status || "";
@@ -38,6 +56,7 @@ window.popup.onUpdate((update) => {
     $("error").textContent = update.error;
   }
   if (update.done) {
+    talking = false;
     document.body.classList.remove("working");
     $("status").hidden = true;
     $("copy").hidden = !plainText;

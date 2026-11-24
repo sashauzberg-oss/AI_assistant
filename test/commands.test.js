@@ -146,3 +146,16 @@ test("password generator", async () => {
   assert.doesNotMatch(generatePassword({ length: 30, symbols: false }), /[^A-Za-z0-9]/);
   assert.notEqual(generatePassword(), generatePassword());
 });
+
+test("pet commands", () => {
+  assert.deepEqual(parseCommand("switch to a dog"), { name: "pet", args: { kind: "dog" } });
+  assert.deepEqual(parseCommand("change pet to penguin"), { name: "pet", args: { kind: "penguin" } });
+  assert.deepEqual(parseCommand("be a frog"), { name: "pet", args: { kind: "frog" } });
+  assert.deepEqual(parseCommand("turn into a rabbit"), { name: "pet", args: { kind: "bunny" } });
+  assert.deepEqual(parseCommand("I want a kitten"), { name: "pet", args: { kind: "cat" } });
+  assert.equal(name("change pet"), "pet_picker");
+  assert.deepEqual(parseCommand("call yourself Pixel"), { name: "pet_name", args: { name: "Pixel" } });
+  assert.deepEqual(parseCommand("rename my pet to Sir Hops"), { name: "pet_name", args: { name: "Sir Hops" } });
+  assert.equal(isInstant(parseCommand("switch to a fox")), true);
+  assert.equal(name("what does a fox say"), null);
+});

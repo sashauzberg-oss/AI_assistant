@@ -184,3 +184,10 @@ test("refuses requests addressed to another host name (DNS rebinding)", async ()
   });
   assert.equal(status, 403);
 });
+
+test("the AI is told which pixel pet it is playing", async () => {
+  await chat("music", { pet: { kind: "fox", animal: "fox", name: "Ember", sound: "Yip!" } });
+  assert.match(requests.at(-1).body.system.at(-1).text, /Ember, the user's cute pixel-art fox/);
+  await chat("music", { pet: { animal: "dragon", name: "Smaug" } });
+  assert.doesNotMatch(requests.at(-1).body.system.at(-1).text, /Smaug/);
+});

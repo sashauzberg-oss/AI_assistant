@@ -9,6 +9,7 @@ import { Voice } from "./voice.js";
 import { Timers, chime } from "./timers.js";
 import { createToolbox } from "./tools.js";
 import { Conversation, NoKeyError } from "./ai.js";
+import { PetBuddy, createPetPicker } from "./pets.js";
 
 applyIcons();
 
@@ -70,6 +71,11 @@ const SNIP_INSTRUCTIONS = {
 };
 
 const player = new MusicPlayer();
+const pet = new PetBuddy(); // the pixel pet who answers everything
+pet.isPlaying = () => player.status === "playing";
+player.addEventListener("change", () => {
+  if (pet.state === "idle" || pet.state === "dancing") pet.setState(pet.restingState());
+});
 new PlayerView(player, $("#player"));
 const snipper = new ScreenSnipper();
 const voice = new Voice();
@@ -112,7 +118,7 @@ function addAssistantMessage() {
   const body = el("div", { class: "body" });
   const statusLine = el("div", { class: "status" }, [el("span", { class: "dots", html: "<i></i><i></i><i></i>" }), el("span", { text: "Thinking…" })]);
   body.append(statusLine);
-  ui.chat.append(el("div", { class: "msg assistant" }, [el("span", { class: "orb avatar", "aria-hidden": "true" }), body]));
+  ui.chat.append(el("div", { class: "msg assistant" }, [pet.sprite({ className: "avatar" }), body]));
   scrollToBottom();
 
   let segment = null;
@@ -202,12 +208,17 @@ function showWelcome() {
     ui.chat.replaceChildren(); // the desktop bar starts as just the typing bar
     return;
   }
-  const chips = ["music", "answer this", "play some jazz", "weather", "timer 5 minutes", "tell me a joke", "what can you do?"];
+  const chips = ["music", "answer this", "play some jazz", "weather", "timer 5 minutes", "tell me a joke", "change pet", "what can you do?"];
+  const { name, sound, animal } = pet.persona;
   ui.chat.replaceChildren(
     el("div", { class: "welcome" }, [
-      el("div", { class: "orb", "aria-hidden": "true" }),
-      el("h1", { text: "Hi, I'm Nova" }),
-      el("p", { text: "Ask me anything, or tell me what to do. I can play music, answer questions on your screen, set timers, check the weather and much more." }),
+      pet.sprite({ live: true }),
+      el("div", { class: "welcome-bubble" }, [
+        el("p", {}, [
+          el("strong", { text: `${sound} I'm ${name}, your pixel ${animal}! ` }),
+          "Ask me anything, or tell me what to do. I can play music, answer questions on your screen, set timers, check the weather and much more.",
+        ]),
+      ]),
       el(
         "div",
         { class: "chips" },
@@ -240,9 +251,7 @@ function speakIfWanted(text, source) {
 function renderStatus() {
   document.body.classList.toggle("offline", !state.ai);
   if (desktop) {
-    ui.input.placeholder = state.ai
-      ? `Ask Nova anything…${desktopSettings?.labels.snip ? `  (${desktopSettings.labels.snip} snips)` : ""}`
-      : "Offline: add an API key in ⚙ to ask anything";
+    ui.input.placeholder = state.ai ? `Ask ${pet.name} anything…` : "Offline: add an API key in ⚙ to ask anything";
   }
   ui.status.textContent = state.ai ? "AI ready" : "Offline mode";
   ui.status.className = `pill ${state.ai ? "ok" : "off"}`;
@@ -560,7 +569,17 @@ timers.addEventListener("done", (e) => {
 
 // ---------------------------------------------------------------- tools
 
-const toolbox = createToolbox({ player, timers, voice, captureScreen, setTheme, units, getLastAnswer: () => state.lastAnswer });
+const toolbox = createToolbox({
+  player,
+  timers,
+  voice,
+  captureScreen,
+  setTheme,
+  units,
+  pet,
+  getLastAnswer: () => state.lastAnswer,
+  openPetPicker: () => togglePetPicker(true),
+});
 
 // ---------------------------------------------------------------- sending
 
@@ -619,6 +638,7 @@ async function runAI(text, image, source, mirror = null) {
   const abort = new AbortController();
   state.abort = abort;
   setBusy(true);
+  pet.setState("thinking");
   const sources = [];
   try {
     const result = await conversation.send(content, {
@@ -626,6 +646,7 @@ async function runAI(text, image, source, mirror = null) {
       onText: (delta) => {
         msg.setStatus("");
         msg.appendText(delta);
+        if (pet.state !== "talking") pet.setState("talking");
         mirror?.({ text: msg.text });
       },
       onStatus: (s) => {
@@ -636,6 +657,7 @@ async function runAI(text, image, source, mirror = null) {
       onRound: () => {
         msg.newRound();
         msg.setStatus("Thinking…");
+        pet.setState("thinking");
       },
       runTool: async (name, input) => {
         const result = await toolbox.run(name, input, msg);
@@ -651,6 +673,7 @@ async function runAI(text, image, source, mirror = null) {
     if (!msg.text.trim() && !result.refused) msg.setText(result.note || "Done.");
     msg.addSources(sources);
     msg.done();
+    pet.setState("happy", 1400);
     mirror?.({ text: msg.text, done: true });
     if (!result.refused) state.lastAnswer = msg.text;
     speakIfWanted(msg.text, source);
@@ -658,6 +681,7 @@ async function runAI(text, image, source, mirror = null) {
     return result.refused ? null : msg.text;
   } catch (err) {
     msg.done();
+    pet.setState(pet.restingState());
     mirror?.({ error: err.name === "AbortError" ? "Stopped." : err.message, done: true });
     if (err.name === "AbortError") {
       msg.error("Stopped.");
@@ -690,6 +714,7 @@ function notifyAnswer(text) {
 async function askAboutSnip(image, mode, source, { label, mirror } = {}) {
   ui.chat.querySelector(".welcome")?.remove();
   addUserMessage(label || SNIP_LABELS[mode] || SNIP_LABELS.answer, image, source);
+  mirror?.({ pet: { name: pet.name, frames: pet.frames() } });
   if (!state.ai) {
     const text = "To read snips I need my AI brain. Open settings (⚙) and paste an Anthropic API key.";
     mirror?.({ text, done: true });
@@ -728,6 +753,7 @@ async function runOffline(text, image, source, command = parseCommand(text)) {
   }
   if (reply) msg.setText(reply);
   msg.done();
+  if (pet.state !== "happy") pet.setState("talking", 900);
   if (reply && command?.name !== "copy_last") state.lastAnswer = reply;
   speakIfWanted(reply, source);
 }
@@ -739,6 +765,7 @@ async function submit(rawText, source = "text") {
 
   const command = text ? parseCommand(text) : null;
   state.lastActivity = Date.now();
+  if (pet.state === "sleeping") pet.setState(pet.restingState());
 
   // Music controls etc. work instantly, even while the AI is busy answering.
   if (state.busy && !isInstant(command)) {
@@ -933,6 +960,46 @@ function setupDesktop() {
   });
 }
 
+// ---------------------------------------------------------------- the pet next to the typing bar
+
+const petLabel = el("span", { class: "pet-label" });
+const petDock = el("button", { class: "pet-dock", type: "button" }, [pet.sprite({ live: true }), petLabel]);
+const petPicker = createPetPicker(pet);
+pet.dock(petDock);
+
+function renderPet() {
+  petLabel.textContent = pet.name.toUpperCase();
+  petDock.title = `${pet.name} the ${pet.pet.animal}: click to choose another pet`;
+  if (desktop) renderStatus();
+  else ui.input.placeholder = window.innerWidth < 520 ? `Ask ${pet.name} anything…` : `Ask ${pet.name} anything… try “music” or “answer this”`;
+  if (ui.chat.querySelector(".welcome")) showWelcome();
+}
+pet.addEventListener("change", renderPet);
+renderPet();
+
+function togglePetPicker(force) {
+  petPicker.hidden = force === undefined ? !petPicker.hidden : !force;
+  if (!petPicker.hidden) petPicker.querySelector('[aria-pressed="true"]')?.focus();
+}
+petDock.addEventListener("click", () => togglePetPicker());
+
+// In the browser, the pet sits to the left of the typing bar.
+if (!desktop) {
+  const main = el("div", { class: "composer-main" });
+  ui.form.prepend(petDock, main);
+  main.append(petPicker, ui.attachment, ui.form.querySelector(".composer-row"));
+  $(".brand .orb")?.replaceWith(pet.sprite());
+}
+
+// The pet dozes off when nothing has happened for a while.
+setInterval(() => {
+  if (!state.busy && pet.state === "idle" && Date.now() - state.lastActivity > 3 * 60 * 1000) pet.setState("sleeping");
+}, 15000);
+ui.input.addEventListener("input", () => {
+  state.lastActivity = Date.now();
+  if (pet.state === "sleeping") pet.setState(pet.restingState());
+});
+
 // ---------------------------------------------------------------- desktop: the floating bar
 
 let panel = null;
@@ -953,7 +1020,7 @@ function setupBar() {
     renderPin();
   });
   renderPin();
-  row.prepend(el("span", { class: "orb bar-orb", title: "Drag to move Nova", "aria-hidden": "true" }));
+  row.prepend(el("span", { class: "grip", title: "Drag to move Nova", "aria-hidden": "true" }));
   row.append(pin, $("#btn-settings"));
 
   const collapse = el("button", { class: "icon-btn small", type: "button", "data-icon": "chevron-up", title: "Hide the conversation" });
@@ -976,7 +1043,11 @@ function setupBar() {
   row.insertBefore(expand, pin);
   panel.expandButton = expand;
 
-  appEl.replaceChildren(ui.form, $("#player"), $("#timers"), panel);
+  appEl.replaceChildren(ui.form, petPicker, $("#player"), $("#timers"), panel);
+  // The pet sits next to the bar, outside the frame.
+  const wrap = el("div", { class: "bar-wrap" });
+  appEl.before(wrap);
+  wrap.append(petDock, appEl);
   applyIcons(appEl);
   setSpeak(state.speak); // re-draw its icon after moving it
 
@@ -987,7 +1058,7 @@ function setupBar() {
   }).observe(ui.chat, { childList: true });
 
   // The window grows and shrinks with the content.
-  new ResizeObserver(() => fitBar()).observe(appEl);
+  new ResizeObserver(() => fitBar()).observe(wrap);
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || ui.settings.open || e.defaultPrevented) return;
@@ -1024,14 +1095,13 @@ function renderPanel() {
 
 function fitBar() {
   if (!desktop || ui.settings.open) return;
-  const appEl = $(".app");
-  const margin = 24; // the transparent space around the bar for its shadow
-  desktop.resize(Math.ceil(appEl.getBoundingClientRect().height) + margin);
+  const wrap = $(".bar-wrap") || $(".app");
+  const margin = 28; // the transparent space around the bar (and the pet) for shadows
+  desktop.resize(Math.ceil(wrap.getBoundingClientRect().height) + margin);
 }
 
 // ---------------------------------------------------------------- start
 
-if (window.matchMedia("(max-width: 520px)").matches) ui.input.placeholder = "Ask Nova anything…";
 renderScreenButton();
 renderVoiceButtons();
 await refreshStatus();
@@ -1046,4 +1116,4 @@ ui.input.focus();
 desktop?.ready();
 
 // For automated tests and the browser console.
-window.nova = { submit, player, timers, conversation, snipper, voice };
+window.nova = { submit, player, timers, conversation, snipper, voice, pet };

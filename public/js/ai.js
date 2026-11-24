@@ -2,6 +2,7 @@
 // server-sent events) and runs the tool loop here in the browser, where the tools live.
 
 import { storage } from "./util.js";
+import { PETS } from "./pets.js";
 
 export class NoKeyError extends Error {}
 
@@ -13,6 +14,10 @@ function clientContext() {
     homeCity: storage.get("homeCity", ""),
     memories: storage.get("memories", []).map((m) => m.text),
     desktop: !!window.novaDesktop,
+    pet: (() => {
+      const kind = PETS[storage.get("petKind", "cat")] ? storage.get("petKind", "cat") : "cat";
+      return { kind, animal: PETS[kind].animal, name: storage.get("petName", "") || PETS[kind].name, sound: PETS[kind].sound };
+    })(),
   };
 }
 

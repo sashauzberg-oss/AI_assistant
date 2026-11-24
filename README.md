@@ -21,6 +21,8 @@ Nova is an AI assistant for your browser or desktop. Type or say what you want a
 | **what's 15% of 80**, **define serendipity**, **who is Ada Lovelace** | Calculates and looks things up |
 | *anything else* | Answers it with Claude, searching the web when needed |
 
+**Your pixel pet answers everything.** A little pixel-art pet sits next to the typing bar and answers your questions in pixel speech bubbles. It blinks, talks while it answers, thinks while it waits, bobs along to music and dozes off when you're away. Click it to pick another animal (cat, dog, bunny, fox, frog or penguin) and give it a name, or just say “switch to a penguin” or “call yourself Pixel”.
+
 It also has voice control (including a hands-free mode with the wake word **“Nova”**), read-aloud answers, light and dark themes, and a layout that works on phones.
 
 There are two ways to run it:
@@ -155,6 +157,8 @@ public/js/ai.js      Streams Claude's answers and runs its tool calls in the bro
 public/js/tools.js   Everything Nova can do (music, screen capture, timers, weather, notes, links…)
 public/js/commands.js  Understands built-in commands without AI (offline mode, instant controls)
 public/js/extras.js  Unit and currency conversion parsing, password generator
+public/js/pets.js    The pixel pets: 16×16 sprites drawn in code, animation, and the pet picker
+public/fonts/        Pixelify Sans and Press Start 2P pixel fonts (SIL Open Font License)
 public/js/music.js   Music player; synth.js generates offline music
 public/js/screen.js  The snipping tool
 public/js/voice.js   Speech recognition, wake word and read-aloud

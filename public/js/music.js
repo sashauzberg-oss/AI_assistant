@@ -518,15 +518,15 @@ export class PlayerView {
       this.bars[i] += (target - this.bars[i]) * 0.25;
     }
     ctx.clearRect(0, 0, width, height);
-    const gradient = ctx.createLinearGradient(0, 0, width, 0);
-    gradient.addColorStop(0, "#8b5cf6");
-    gradient.addColorStop(1, "#22d3ee");
-    ctx.fillStyle = gradient;
+    // Chunky pixel bars: whole pixels, stepped heights, purple to pink.
+    const colors = ["#7c3aed", "#9b4ff0", "#c056e0", "#e45ac8", "#ff5fa2"];
     const gap = 2;
-    const w = (width - gap * (n - 1)) / n;
+    const w = Math.floor((width - gap * (n - 1)) / n);
+    const step = 4;
     for (let i = 0; i < n; i++) {
-      const h = Math.max(2, this.bars[i] * height);
-      ctx.fillRect(i * (w + gap), (height - h) / 2, w, h);
+      const h = Math.max(step, Math.round((this.bars[i] * height) / step) * step);
+      ctx.fillStyle = colors[Math.floor((i / n) * colors.length)];
+      ctx.fillRect(i * (w + gap), Math.round((height - h) / 2), w, h);
     }
   }
 }

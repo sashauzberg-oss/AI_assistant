@@ -139,6 +139,17 @@ export function parseCommand(input) {
   let m;
 
   if (/^(help|commands|what can you do|what can i say|\?)$/.test(s)) return { name: "help" };
+
+  // ----- the pet -----
+  const PET_WORDS = { cat: "cat", kitty: "cat", kitten: "cat", dog: "dog", puppy: "dog", doggo: "dog", bunny: "bunny", rabbit: "bunny", fox: "fox", frog: "frog", penguin: "penguin" };
+  const petWord = `(${Object.keys(PET_WORDS).join("|")})`;
+  if ((m = s.match(new RegExp(`^(?:change|switch|turn)(?: my| the| your)?(?: pet| buddy| self|self)?(?: in)?(?: to| into) (?:a |an )?${petWord}s?$|^(?:be|become) (?:a |an )?${petWord}$|^(?:i want|give me|get me) (?:a |an )?${petWord}(?: pet)?$|^${petWord} (?:pet|mode)$`)))) {
+    return { name: "pet", args: { kind: PET_WORDS[m.slice(1).find(Boolean)] } };
+  }
+  if (/^(change|choose|pick|switch|new)( my| the| your)? (pet|buddy|animal)$|^pets?$|^change pet$/.test(s)) return { name: "pet_picker" };
+  if ((m = String(input).trim().match(/^(?:(?:hey )?nova[,\s]+)?(?:rename (?:my |the )?pet(?: to)?|call yourself|your name is now|i'?ll call you|name (?:my pet|the pet|you))\s+(.+?)[.!]*$/i))) {
+    return { name: "pet_name", args: { name: m[1].trim() } };
+  }
   if (/^(clear|clear (the )?chat|new chat|start over|reset)$/.test(s)) return { name: "clear" };
   if (/\b(copy|grab|extract|get|read) (the |all the )?text (from|on|off) (my |the |this )?(screen|window|page|image)\b|^(copy|extract) text$/.test(s)) {
     return { name: "answer_screen", args: { mode: "text" } };
@@ -317,7 +328,7 @@ export function parseCommand(input) {
 /** Commands that run instantly in the browser even when the AI is available. */
 export function isInstant(command) {
   if (!command) return false;
-  const instant = ["music_control", "help", "clear", "theme", "cancel_timers", "list_timers", "copy_last", "stopwatch", "focus", "password", "convert"];
+  const instant = ["music_control", "help", "clear", "theme", "cancel_timers", "list_timers", "copy_last", "stopwatch", "focus", "password", "convert", "pet", "pet_picker", "pet_name"];
   if (instant.includes(command.name)) return true;
   return command.name === "music_play" && command.args.query === "";
 }
