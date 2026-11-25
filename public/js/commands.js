@@ -142,7 +142,7 @@ function parseExact(input) {
   if (/^(help|commands|what can you do|what can i say|\?)$/.test(s)) return { name: "help" };
 
   // ----- the pet -----
-  const PET_WORDS = { cat: "cat", kitty: "cat", kitten: "cat", dog: "dog", puppy: "dog", doggo: "dog", bunny: "bunny", rabbit: "bunny", fox: "fox", frog: "frog", penguin: "penguin", panda: "panda", owl: "owl", hamster: "hamster", duck: "duck", duckling: "duck", chick: "duck", axolotl: "axolotl", dragon: "dragon", unicorn: "unicorn", pig: "pig", piggy: "pig", koala: "koala", turtle: "turtle", tortoise: "turtle", octopus: "octopus", raccoon: "raccoon" };
+  const PET_WORDS = { cat: "cat", kitty: "cat", kitten: "cat", dog: "dog", puppy: "dog", doggo: "dog", bunny: "bunny", rabbit: "bunny", fox: "fox", frog: "frog", penguin: "penguin", panda: "panda", owl: "owl", hamster: "hamster", duck: "duck", duckling: "duck", chick: "duck", axolotl: "axolotl", dragon: "dragon", unicorn: "unicorn", pig: "pig", piggy: "pig", koala: "koala", turtle: "turtle", tortoise: "turtle", octopus: "octopus", raccoon: "raccoon", bear: "bear", teddy: "bear", hedgehog: "hedgehog", capybara: "capybara", sheep: "sheep", lamb: "sheep", shark: "shark", lion: "lion" };
   const petWord = `(${Object.keys(PET_WORDS).join("|")})`;
   if ((m = s.match(new RegExp(`^(?:change|switch|turn)(?: my| the| your)?(?: pet| buddy| self|self)?(?: in)?(?: to| into) (?:a |an )?${petWord}s?$|^(?:be|become) (?:a |an )?${petWord}$|^(?:i want|give me|get me) (?:a |an )?${petWord}(?: pet)?$|^${petWord} (?:pet|mode)$`)))) {
     return { name: "pet", args: { kind: PET_WORDS[m.slice(1).find(Boolean)] } };
@@ -341,7 +341,7 @@ const VOCAB = new Set([
   light mode theme pet change switch become rename what weather miles kilometers meters centimeters feet inches pounds ounces grams
   kilograms celsius fahrenheit gallons liters dollars euros`.split(/\s+/),
   ...GENRE_WORDS,
-  ..."cat dog bunny rabbit fox frog penguin panda owl hamster duck axolotl dragon unicorn pig koala turtle octopus raccoon".split(" "),
+  ..."cat dog bunny rabbit fox frog penguin panda owl hamster duck axolotl dragon unicorn pig koala turtle octopus raccoon bear hedgehog capybara sheep shark lion".split(" "),
 ]);
 
 /** The closest vocabulary word for a misspelled word, or the word itself. */

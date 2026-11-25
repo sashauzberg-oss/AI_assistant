@@ -185,9 +185,12 @@ test("understands slightly misspelled commands", async () => {
   assert.equal(parse("play muse").understood, undefined);
 });
 
-test("18 pets", async () => {
+test("24 pets", async () => {
   const { PET_KINDS } = await import("../public/js/pets.js");
-  assert.equal(PET_KINDS.length, 18);
+  assert.equal(PET_KINDS.length, 24);
+  assert.deepEqual(parseCommand("be a capybara").args, { kind: "capybara" });
+  assert.deepEqual(parseCommand("switch to a hedgehog").args, { kind: "hedgehog" });
+  assert.deepEqual(parseCommand("i want a lamb").args, { kind: "sheep" });
   assert.deepEqual(parseCommand("switch to a koala").args, { kind: "koala" });
   assert.deepEqual(parseCommand("be a raccoon").args, { kind: "raccoon" });
   assert.deepEqual(parseCommand("i want a tortoise").args, { kind: "turtle" });
