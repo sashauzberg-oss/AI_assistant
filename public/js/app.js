@@ -11,6 +11,7 @@ import { createToolbox } from "./tools.js";
 import { Conversation, NoKeyError } from "./ai.js";
 import { PetBuddy, createPetPicker, PETS } from "./pets.js";
 import { attachAutocorrect, loadCorrector } from "./autocorrect.js";
+import { playJokeShow } from "./cutscene.js";
 
 applyIcons();
 
@@ -44,6 +45,7 @@ const state = {
   theme: storage.get("theme", "system"),
   lastAnswer: "",
   lastActivity: Date.now(),
+  lastSource: "text",
 };
 
 // Set when running inside the Nova desktop app (see desktop/preload.cjs).
@@ -581,6 +583,39 @@ timers.addEventListener("done", (e) => {
   voice.speak(`Time's up: ${e.detail.label}`);
 });
 
+// ---------------------------------------------------------------- jokes on stage
+
+let showQueue = Promise.resolve();
+/**
+ * The joke cutscene: the pet tells the joke on stage, the crowd laughs, mic drop.
+ * Full screen in the desktop app, over the page in the browser. One show at a time.
+ */
+function performJoke({ setup, punchline }) {
+  const run = showQueue.then(async () => {
+    const show = {
+      kind: pet.kind,
+      name: pet.name,
+      setup,
+      punchline,
+      speak: state.speak || (state.lastSource === "voice" && state.speakWhenSpoken),
+    };
+    state.performedJoke = true;
+    const ducked = player.status === "playing";
+    if (ducked) player.duck(true);
+    voice.stopSpeaking();
+    pet.setState("talking");
+    try {
+      if (desktop?.joke) await desktop.joke(show);
+      else await playJokeShow(show);
+    } finally {
+      if (ducked) player.duck(false);
+      pet.setState("happy", 1400);
+    }
+  });
+  showQueue = run.catch(() => {});
+  return run;
+}
+
 // ---------------------------------------------------------------- tools
 
 const toolbox = createToolbox({
@@ -593,6 +628,7 @@ const toolbox = createToolbox({
   pet,
   getLastAnswer: () => state.lastAnswer,
   openPetPicker: () => togglePetPicker(true),
+  performJoke,
 });
 
 // ---------------------------------------------------------------- sending
@@ -653,6 +689,7 @@ async function runAI(text, image, source, mirror = null) {
   state.abort = abort;
   setBusy(true);
   pet.setState("thinking");
+  state.performedJoke = false;
   const sources = [];
   try {
     const result = await conversation.send(content, {
@@ -690,7 +727,7 @@ async function runAI(text, image, source, mirror = null) {
     pet.setState("happy", 1400);
     mirror?.({ text: msg.text, done: true });
     if (!result.refused) state.lastAnswer = msg.text;
-    speakIfWanted(msg.text, source);
+    if (!state.performedJoke) speakIfWanted(msg.text, source); // a joke was already performed out loud
     if (desktop && !windowVisible && source !== "hotkey") notifyAnswer(msg.text);
     return result.refused ? null : msg.text;
   } catch (err) {
@@ -766,12 +803,14 @@ async function runOffline(text, image, source, command = parseCommand(text, pars
     const q = encodeURIComponent(text);
     reply = `I'm in offline mode, so I only know built-in commands (type **help** to see them). Add an Anthropic API key in Settings and I can answer anything.\n\nMeanwhile, here's a [web search for “${text}”](https://www.google.com/search?q=${q}).`;
   }
-  if (reply && command?.understood) reply += `\n\n_(I took that as “${command.understood}”.)_`;
-  if (reply) msg.setText(reply);
+  const note = command?.understood ? `_(I took that as “${command.understood}”.)_` : "";
+  if (reply) msg.setText(note ? `${reply}\n\n${note}` : reply);
+  else if (note && msg.text) msg.setText(note);
   msg.done();
   if (pet.state !== "happy") pet.setState("talking", 900);
-  if (reply && command?.name !== "copy_last") state.lastAnswer = reply;
-  speakIfWanted(reply, source);
+  const said = msg.text;
+  if (said && command?.name !== "copy_last") state.lastAnswer = said;
+  if (command?.name !== "joke") speakIfWanted(said, source); // the joke was already performed out loud
 }
 
 async function submit(rawText, source = "text") {
@@ -781,6 +820,7 @@ async function submit(rawText, source = "text") {
 
   const command = text ? parseCommand(text, parseOptions) : null;
   state.lastActivity = Date.now();
+  state.lastSource = source;
   if (pet.state === "sleeping") pet.setState(pet.restingState());
 
   // Music controls etc. work instantly, even while the AI is busy answering.

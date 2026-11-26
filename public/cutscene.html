@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" class="cs-html">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nova on stage</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/cutscene.css">
+</head>
+<body class="cs-page">
+  <!-- The desktop app opens this full screen to play the joke cutscene; the joke comes in the URL hash. -->
+  <script type="module">
+    import { playJokeShow } from "./js/cutscene.js";
+
+    let joke = {};
+    try {
+      joke = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+    } catch {
+      // nothing to perform
+    }
+    const done = () => (window.novaStage ? window.novaStage.done() : window.close());
+    playJokeShow({ ...joke, root: document.body }).finally(done);
+  </script>
+</body>
+</html>

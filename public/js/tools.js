@@ -6,6 +6,7 @@ import { calculate, formatNumber } from "./calc.js";
 import { secondsUntil } from "./commands.js";
 import { generatePassword } from "./extras.js";
 import { imageFromFile } from "./screen.js";
+import { randomJoke, jokeText } from "./jokes.js";
 
 /** Facts the user asked Nova to remember; sent to the AI with every request. */
 export const memories = {
@@ -13,37 +14,6 @@ export const memories = {
   texts: () => storage.get("memories", []).map((m) => m.text),
   save: (list) => storage.set("memories", list),
 };
-
-const JOKES = [
-  "Why don't scientists trust atoms? Because they make up everything.",
-  "I told my computer I needed a break, and it said: no problem, I'll go to sleep.",
-  "Why did the scarecrow win an award? He was outstanding in his field.",
-  "What do you call a fake noodle? An impasta.",
-  "Why don't skeletons fight each other? They don't have the guts.",
-  "I'm reading a book about anti-gravity. It's impossible to put down.",
-  "Why did the bicycle fall over? It was two tired.",
-  "What do you call a bear with no teeth? A gummy bear.",
-  "Why can't you give Elsa a balloon? Because she'll let it go.",
-  "How does a penguin build its house? Igloos it together.",
-  "Why did the math book look sad? It had too many problems.",
-  "What did the ocean say to the beach? Nothing, it just waved.",
-  "Why do programmers prefer dark mode? Because light attracts bugs.",
-  "I used to hate facial hair, but then it grew on me.",
-  "What's orange and sounds like a parrot? A carrot.",
-  "Why did the coffee file a police report? It got mugged.",
-  "How do you organize a space party? You planet.",
-  "Why was the stadium so cool? It was filled with fans.",
-  "What do you call cheese that isn't yours? Nacho cheese.",
-  "Why did the golfer bring two pairs of pants? In case he got a hole in one.",
-  "I only know 25 letters of the alphabet. I don't know y.",
-  "What did one wall say to the other? I'll meet you at the corner.",
-  "Why don't eggs tell jokes? They'd crack each other up.",
-  "What do you call a sleeping dinosaur? A dino-snore.",
-  "Why did the cookie go to the doctor? It was feeling crumbly.",
-  "Parallel lines have so much in common. It's a shame they'll never meet.",
-  "Why did the tomato blush? It saw the salad dressing.",
-  "What kind of music do mummies like? Wrap music.",
-];
 
 const HELP = `Here's what I can do. Just type or say it:
 
@@ -113,6 +83,7 @@ const SPECS = {
   convert_currency: { amount: { type: "number", required: true }, from: { type: "string", required: true }, to: { type: "string", required: true } },
   generate_password: { length: { type: "integer", min: 8, max: 128 }, symbols: { type: "boolean" } },
   open_app: { name: { type: "string", required: true } },
+  tell_joke: { setup: { type: "string", required: true }, punchline: { type: "string", required: true } },
 };
 
 // ---------- cards ----------
@@ -176,7 +147,7 @@ function linkCard(url, title, sub) {
 
 // ---------- the toolbox ----------
 
-export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, pet, getLastAnswer = () => "", openPetPicker = () => {} }) {
+export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, pet, getLastAnswer = () => "", openPetPicker = () => {}, performJoke = async () => {} }) {
   const desktop = window.novaDesktop || null;
   const notes = {
     all: () => storage.get("notes", []),
@@ -349,6 +320,23 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
     return `🍅 Focus session started: **${describeDuration(seconds)}**. Put your phone away, I've got the music.`;
   }
 
+  /** Put a joke on stage (the cutscene), then show it in the chat. */
+  async function tellJoke(joke, ui) {
+    try {
+      await performJoke(joke);
+    } catch {
+      // the show couldn't run; the joke still goes in the chat
+    }
+    ui.setText(jokeText(joke));
+  }
+
+  function nextJoke() {
+    const recent = storage.get("recentJokes", []);
+    const joke = randomJoke(recent);
+    storage.set("recentJokes", [...recent, joke.index].slice(-20));
+    return joke;
+  }
+
   async function openApp(name, ui) {
     if (!desktop) return { content: "Opening apps only works in the Nova desktop app.", isError: true };
     const result = await desktop.openApp(name);
@@ -486,6 +474,13 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
 
     async open_app({ name }, ui) {
       return openApp(name, ui);
+    },
+
+    async tell_joke({ setup, punchline }, ui) {
+      const joke = { setup: setup.trim().slice(0, 300), punchline: punchline.trim().slice(0, 300) };
+      if (!joke.setup || !joke.punchline) return { content: "Give both a setup and a punchline.", isError: true };
+      await tellJoke(joke, ui);
+      return { content: "Done: the joke was performed on stage and is shown in the chat. Reply with only a short sign-off; don't repeat the joke." };
     },
   };
 
@@ -654,7 +649,8 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
         }
       }
       case "joke":
-        return `😄 ${JOKES[Math.floor(Math.random() * JOKES.length)]}`;
+        await tellJoke(nextJoke(), ui);
+        return "";
       case "coin":
         return `🪙 **${Math.random() < 0.5 ? "Heads" : "Tails"}**!`;
       case "dice": {

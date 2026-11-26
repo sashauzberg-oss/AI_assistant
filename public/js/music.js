@@ -399,6 +399,13 @@ export class MusicPlayer extends EventTarget {
     return "Music stopped.";
   }
 
+  /** Turn the music down for a moment (while the pet tells a joke), without changing the saved volume. */
+  duck(on) {
+    const level = on ? this.volume * 0.2 : this.volume;
+    this.audio.volume = level;
+    this.synth.setVolume(level);
+  }
+
   setVolume(value) {
     this.volume = Math.max(0, Math.min(1, value));
     this.audio.volume = this.volume;

@@ -51,6 +51,7 @@ let popup = null;
 let snipping = false;
 let quitting = false;
 let keepOpen = false; // the page asks to stay open (file picker, settings)
+let stage = null; // the full-screen joke cutscene window, while it's on
 let movingProgrammatically = false;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -107,7 +108,7 @@ function createMainWindow() {
   mainWindow.on("blur", () => {
     setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused() || !mainWindow.isVisible()) return;
-      if (settings.pinned || keepOpen || snipping || quitting) return;
+      if (settings.pinned || keepOpen || snipping || stage || quitting) return;
       if (popup && !popup.isDestroyed() && popup.isFocused()) return; // our own answer bubble isn't "somewhere else"
       mainWindow.hide();
     }, 150);
@@ -283,6 +284,71 @@ function selectRegion(display, image, mode = "answer") {
       });
     });
     overlay.loadFile(ui("overlay.html"));
+  });
+}
+
+/**
+ * The joke cutscene: a full-screen window on the display Nova is on, where the pet tells
+ * the joke on stage. Resolves when the show is over (or skipped).
+ */
+function performJoke(joke) {
+  if (stage) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const anchor = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow.getBounds() : null;
+    const display = anchor ? screen.getDisplayMatching(anchor) : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const win = new BrowserWindow({
+      ...display.bounds,
+      frame: false,
+      show: false,
+      transparent: true,
+      backgroundColor: "#00000000",
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      hasShadow: false,
+      enableLargerThanScreen: true,
+      title: "Nova on stage",
+      webPreferences: {
+        preload: path.join(here, "stage-preload.cjs"),
+        contextIsolation: true,
+        sandbox: true,
+        autoplayPolicy: "no-user-gesture-required",
+      },
+    });
+    stage = win;
+    win.setAlwaysOnTop(true, "screen-saver");
+    if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    lockDown(win, serverUrl);
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(limit);
+      ipcMain.removeListener("stage:done", onDone);
+      stage = null;
+      if (!win.isDestroyed()) win.destroy();
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.focus();
+      resolve(true);
+    };
+    const onDone = (event) => {
+      if (!win.isDestroyed() && event.sender === win.webContents) finish();
+    };
+    const limit = setTimeout(finish, 120000); // never leave a stuck window over the screen
+    ipcMain.on("stage:done", onDone);
+    win.on("closed", finish);
+    win.webContents.on("render-process-gone", finish);
+    win.once("ready-to-show", () => {
+      win.setBounds(display.bounds);
+      win.show();
+      win.setBounds(display.bounds); // some window managers nudge it on show
+      win.focus();
+    });
+    win.loadURL(`${new URL("cutscene.html", serverUrl)}#${encodeURIComponent(JSON.stringify(joke))}`).catch(finish);
   });
 }
 
@@ -500,6 +566,19 @@ function setupIpc() {
     await clipboard.writeText(text);
     return true;
   });
+  ipcMain.handle("nova:joke", (event, joke) => {
+    if (!fromMain(event) || !joke || typeof joke !== "object") return false;
+    const text = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
+    const show = {
+      kind: text(joke.kind, 20),
+      name: text(joke.name, 24),
+      setup: text(joke.setup, 400),
+      punchline: text(joke.punchline, 400),
+      speak: joke.speak === true,
+    };
+    if (!show.setup && !show.punchline) return false;
+    return performJoke(show);
+  });
   ipcMain.handle("nova:open-app", (event, name) => {
     if (!fromMain(event) || typeof name !== "string") return { ok: false, error: "Invalid app name." };
     return openApp(name);
@@ -631,5 +710,5 @@ app.whenReady().then(async () => {
     });
   }
 
-  if (process.env.NOVA_TEST) globalThis.novaTest = { snip, snipAndAnswer, showMain, getPopup: () => popup, getMain: () => mainWindow, hasTray: () => !!tray };
+  if (process.env.NOVA_TEST) globalThis.novaTest = { snip, snipAndAnswer, showMain, getPopup: () => popup, getMain: () => mainWindow, getStage: () => stage, hasTray: () => !!tray };
 });

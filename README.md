@@ -19,9 +19,12 @@ Nova is an AI assistant for your browser or desktop. Type or say what you want a
 | **open Spotify**, **open calculator** (desktop app) | Opens apps installed on your computer |
 | **note buy milk**, **show my notes** | Keeps a notes and to-do list |
 | **what's 15% of 80**, **define serendipity**, **who is Ada Lovelace** | Calculates and looks things up |
+| **tell me a joke**, **make me laugh**, **a joke about cats** | Your pet does stand-up: a full-screen comedy club cutscene with a mic drop |
 | *anything else* | Answers it with Claude, searching the web when needed |
 
 **Your pixel pet answers everything.** A little pixel-art pet sits next to the typing bar and answers your questions in pixel speech bubbles. It blinks, talks while it answers, thinks while it waits, bobs along to music and dozes off when you're away. Click it to pick another animal (24 to choose from: cat, dog, bunny, fox, frog, penguin, panda, owl, hamster, duck, axolotl, dragon, unicorn, pig, koala, turtle, octopus, raccoon, bear, hedgehog, capybara, sheep, shark or lion) and give it a name, or just say “be a dragon” or “call yourself Pixel”.
+
+**Joke time.** Ask for a joke and your pet takes the stage: the curtains open, the spotlight comes on, and your pet (filling the screen) hops on with a microphone, taps it (“is this thing on?”) and tells the joke in a speech bubble. Ba-dum-tss, the crowd laughs, and it puts on sunglasses and drops the mic. In the desktop app it plays over your whole screen. Any music playing is turned down during the show. Click, or press Esc, to skip. With an API key the AI writes a new joke each time (on any topic you ask for); offline, the pet picks from its own joke book. The pet reads the joke out loud too if you've turned on read-aloud answers.
 
 **Auto-correct.** Typos are fixed as you type, like on a phone: “teh” becomes “the” when you press space, and “dont” becomes “don't”. A little chip shows what changed; click it or press Backspace right away to undo, and Nova won't change that word again. Names, links, ALL CAPS and your pet's name are left alone. Turn it off in Settings › Personal.
 
@@ -162,6 +165,9 @@ public/js/tools.js   Everything Nova can do (music, screen capture, timers, weat
 public/js/commands.js  Understands built-in commands without AI (offline mode, instant controls)
 public/js/extras.js  Unit and currency conversion parsing, password generator
 public/js/pets.js    The pixel pets: 16×16 sprites drawn in code, animation, and the pet picker
+public/js/cutscene.js  The joke cutscene: comedy club stage, crowd, sunglasses, mic drop, and its sound effects (made live with Web Audio)
+public/js/jokes.js   The built-in joke book used offline
+public/cutscene.html The page the desktop app opens full screen to play the cutscene
 public/js/autocorrect.js  Auto-correct: dictionary lookup, closest-word suggestions, undo
 public/data/words.txt  The auto-correct dictionary (about 63,000 words from SCOWL; see WORDS-LICENSE.txt)
 public/fonts/        Pixelify Sans and Press Start 2P pixel fonts (SIL Open Font License)
@@ -170,11 +176,11 @@ public/js/screen.js  The snipping tool
 public/js/voice.js   Speech recognition, wake word and read-aloud
 desktop/main.js      Desktop app: the floating bar, tray, global hotkeys, native screen capture, answer bubble
 desktop/apps.js      Opens installed apps by name (Start menu on Windows, `open -a` on Mac, .desktop files on Linux)
-desktop/ui/          The snip overlay and the answer bubble
+desktop/ui/          The snip overlay and the answer bubble (the joke stage window loads public/cutscene.html)
 desktop/*.cjs        Bridges that give each desktop window only the functions it needs
 ```
 
-Claude decides what to do and calls tools such as `play_music`, `capture_screen`, `set_timer` or `get_weather`. Those tools run in your browser, where the speakers, screen and microphone are, and their results go back to Claude. Claude can also search and read the web on its own. The model's server-side refusal fallback is turned on, so if a request is declined, the API retries it on a fallback model automatically.
+Claude decides what to do and calls tools such as `play_music`, `capture_screen`, `set_timer`, `get_weather` or `tell_joke`. Those tools run in your browser, where the speakers, screen and microphone are, and their results go back to Claude. Claude can also search and read the web on its own. The model's server-side refusal fallback is turned on, so if a request is declined, the API retries it on a fallback model automatically.
 
 ## Tests
 

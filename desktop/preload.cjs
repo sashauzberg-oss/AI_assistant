@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("novaDesktop", {
   snip: (mode) => ipcRenderer.invoke("nova:snip", mode),
   openExternal: (url) => ipcRenderer.invoke("nova:open-external", url),
   openApp: (name) => ipcRenderer.invoke("nova:open-app", name),
+  joke: (show) => ipcRenderer.invoke("nova:joke", show),
   readClipboard: () => ipcRenderer.invoke("nova:read-clipboard"),
   copy: (text) => ipcRenderer.invoke("nova:copy", text),
   getSettings: () => ipcRenderer.invoke("nova:get-settings"),
