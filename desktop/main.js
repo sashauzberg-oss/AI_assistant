@@ -358,13 +358,14 @@ function playCutscene(show) {
 // ------------------------------------------------------------------ the pet rides the cursor
 
 const RIDER = { width: 260, height: 150 }; // room for the pet and its speech bubble
-const SEAT = { x: 5, y: 3 }; // where the pet's feet go, from the cursor's tip (as in public/js/rider.js)
+const SEAT = { x: 3, y: 6 }; // where the pet sits, from the cursor's tip (as in public/js/rider.js)
+const RIDER_BOTTOM = 22; // the pet's seat is this far above the window's bottom (its legs hang below)
 const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 
 /** Moves the rider window so the pet sits on `point` (a cursor position). */
 function placeRider(point) {
   const x = Math.round(point.x + SEAT.x - RIDER.width / 2);
-  const y = Math.round(point.y + SEAT.y - (RIDER.height - 10));
+  const y = Math.round(point.y + SEAT.y - (RIDER.height - RIDER_BOTTOM));
   const [cx, cy] = ride.win.getPosition();
   if (cx !== x || cy !== y) ride.win.setPosition(x, y);
 }
@@ -382,7 +383,7 @@ function startRide(pet, from) {
   const win = new BrowserWindow({
     ...RIDER,
     x: Math.round(start.x + SEAT.x - RIDER.width / 2),
-    y: Math.round(start.y + SEAT.y - (RIDER.height - 10)),
+    y: Math.round(start.y + SEAT.y - (RIDER.height - RIDER_BOTTOM)),
     frame: false,
     show: false,
     transparent: true,

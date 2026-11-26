@@ -12,10 +12,14 @@
   pointer-events: none;
   will-change: transform;
 }
-.rider.window { position: absolute; left: 50%; top: auto; bottom: 10px; margin-left: -24px; }
+.rider.window { position: absolute; left: 50%; top: auto; bottom: 22px; margin-left: -24px; }
 .rider canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 .rider-body { position: absolute; inset: 0; transform-origin: 50% 100%; }
-.rider-pet { width: 100%; height: 100%; filter: drop-shadow(0 2px 0 rgba(20, 10, 40, 0.35)); }
+.rider-pet { position: relative; width: 100%; height: 100%; filter: drop-shadow(0 2px 0 rgba(20, 10, 40, 0.35)); }
+/* The legs dangle on either side of the arrow (its tip sits at 21px, 6px above the bottom). */
+.rider-leg { position: absolute; top: 39px; width: 9px; height: 21px; transform-origin: 50% 0; }
+.rider-leg.left { left: 6px; }
+.rider-leg.right { left: 38px; }
 .rider-pet.landing { animation: rider-land 0.32s steps(4); }
 @keyframes rider-land {
   0% { transform: scale(1.3, 0.7); }

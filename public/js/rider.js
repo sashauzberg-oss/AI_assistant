@@ -14,10 +14,14 @@ export const RIDE_LINES = {
   leave: ["Thanks for the ride!", "That was fun!", "Bye-bye, cursor!"],
 };
 
-/** Where the pet sits, relative to the cursor's tip: its feet just over the arrow. */
-export const SEAT = { x: 5, y: 3 };
+/**
+ * Where the pet sits, relative to the cursor's tip: astride the arrow, with the tip just
+ * under its seat and its legs dangling down either side of the arrow.
+ */
+export const SEAT = { x: 3, y: 6 };
 const SIZE = 48; // the pet on the cursor, in CSS pixels (its 16×16 sprite × 3)
 const TAIL = ["WWWWo", "oWWWo", ".oWWo", "..oWo", "...oo", "....o"];
+const LEG = ["oFo", "oFo", "oFo", "oFo", "oFo", "oPo", "ooo"]; // a dangling leg, F fur and P paw
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
@@ -49,9 +53,15 @@ export class PetRider {
     this.canvas.className = "rider-pet";
     this.trail = document.createElement("i");
     this.trail.className = "rider-trail";
+    // The legs hang down on either side of the arrow, so the pet sits astride the cursor.
+    this.legs = ["left", "right"].map((side) => {
+      const leg = document.createElement("canvas");
+      leg.className = `rider-leg ${side}`;
+      return leg;
+    });
     this.body = document.createElement("div");
     this.body.className = "rider-body";
-    this.body.append(this.trail, this.canvas);
+    this.body.append(this.trail, ...this.legs, this.canvas); // legs behind the body
     this.text = document.createElement("span");
     const tail = document.createElement("canvas");
     tail.className = "rider-tail";
@@ -115,6 +125,8 @@ export class PetRider {
     this.name = name || PETS[this.kind].name;
     this.sound = sound || PETS[this.kind].sound;
     this.lastFrame = "";
+    const { fur, outline } = furOf(this.kind);
+    for (const leg of this.legs) paint(leg, LEG, { o: outline, F: fur, P: shade(fur, 0.72) });
   }
 
   /** The cursor's speed, from the desktop app (pixels per second). */
@@ -228,6 +240,10 @@ export class PetRider {
     const bounce = speed > 150 ? -Math.abs(Math.sin(this.clock * 18)) * Math.min(3, speed / 400) : Math.floor(this.clock * 1.6) % 2 ? -1 : 0;
     this.body.style.transform = `translateY(${bounce.toFixed(1)}px) rotate(${this.tilt.toFixed(3)}rad)`;
     this.trail.style.opacity = clamp((speed - 600) / 900, 0, 1).toFixed(2);
+    // legs: a lazy dangle, or kicking like a jockey when you get going
+    const kick = speed > 150 ? Math.sin(this.clock * 16) * 22 : Math.sin(this.clock * 2.2) * 8;
+    this.legs[0].style.transform = `rotate(${(-6 + kick).toFixed(1)}deg)`;
+    this.legs[1].style.transform = `rotate(${(6 - kick).toFixed(1)}deg)`;
     this.trail.classList.toggle("right", this.vx < 0);
 
     // ----- where the pet is (page mode; in the desktop app the window moves instead)
@@ -256,6 +272,20 @@ export class PetRider {
     }
     this.raf = requestAnimationFrame((time) => this.frame(time));
   }
+}
+
+/** A pet's main fur colour and outline, for its legs. */
+function furOf(kind) {
+  const pet = PETS[kind];
+  const counts = {};
+  for (const row of pet.rows) for (const ch of row) if (ch !== "." && ch !== "o") counts[ch] = (counts[ch] || 0) + 1;
+  const main = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  return { fur: pet.palette[main] || "#cccccc", outline: pet.palette.o || "#1b1b2f" };
+}
+
+function shade(color, k) {
+  const n = parseInt(color.slice(1), 16);
+  return `rgb(${[16, 8, 0].map((b) => Math.round(((n >> b) & 255) * k)).join(",")})`;
 }
 
 function paint(canvas, rows, colors) {
