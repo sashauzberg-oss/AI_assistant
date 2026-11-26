@@ -16,7 +16,15 @@
 .rider.window { position: absolute; left: 50%; top: auto; bottom: 22px; margin-left: -24px; }
 .rider canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 .rider-body { position: absolute; inset: 0; transform-origin: 50% 100%; }
-.rider-pet { position: relative; width: 100%; height: 100%; filter: drop-shadow(0 2px 0 rgba(20, 10, 40, 0.35)); }
+.rider-pet { position: relative; z-index: 1; width: 100%; height: 100%; filter: drop-shadow(0 2px 0 rgba(20, 10, 40, 0.35)); }
+/* dizzy: swirly @ eyes and stars going round the head */
+.rider-eyes { position: absolute; inset: 0; z-index: 2; display: none; }
+.rider.dizzy .rider-eyes { display: block; }
+.rider-eye { position: absolute; display: flex; align-items: center; justify-content: center; overflow: visible; }
+.rider-eye span { font: 9px/1 "Press Start 2P", monospace; animation: rider-swirl 0.5s steps(8) infinite; }
+@keyframes rider-swirl { to { transform: rotate(-360deg); } }
+.rider-star { position: absolute; left: 0; top: 0; width: 12px; height: 12px; display: none; }
+.rider.dizzy .rider-star { display: block; }
 /* The legs dangle on either side of the arrow (its tip sits at 21px, 6px above the bottom). */
 .rider-leg { position: absolute; top: 39px; width: 9px; height: 21px; transform-origin: 50% 0; }
 .rider-leg.left { left: 6px; }

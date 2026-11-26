@@ -3,6 +3,7 @@
 // In the browser it rides inside the page. In the desktop app it lives in a small
 // see-through window that follows the cursor around the whole screen (public/rider.html).
 import { PETS, drawPet } from "./pets.js";
+import { petGeometry } from "./cutscene.js";
 
 export const RIDE_LINES = {
   land: ["Hop! I'm on!", "Great view up here!", "All aboard!", "Let's ride!"],
@@ -12,7 +13,45 @@ export const RIDE_LINES = {
   chatter: ["This is fun!", "Hold on tight!", "Left! No, right!", "Ooh, where are we going?", "Best. Ride. Ever.", "Beep beep!", "*hums a tune*"],
   wake: ["Huh? We're moving!", "I'm awake! I'm awake!", "Whoa, where are we?"],
   leave: ["Thanks for the ride!", "That was fun!", "Bye-bye, cursor!"],
+  woozy: ["Slow down!", "Whoa, whoa, whoa!", "Not so fast!", "Easy there!"],
+  dizzy: ["Everything's spinning…", "@_@", "I'm so dizzy…", "I see stars!", "Which way is up?", "The room is spinning!", "Blehhh…", "Too… fast…"],
+  better: ["Phew… that's better.", "Okay… I'm okay!", "Can we go slower next time?", "Whoa. The world stopped spinning."],
 };
+
+/** The dizzy meter: full at `max`, dizzy from `start` until it drops to `end` (and at least `minSeconds`). */
+export const DIZZY = { warn: 1.5, start: 2.6, end: 1, max: 5, minSeconds: 3 };
+
+/**
+ * Updates the dizzy meter for one frame. Riding fast fills it, shaking the mouse back and
+ * forth fills it faster, and calm riding lets it wear off. Pure, so it can be tested.
+ * Returns the new state, with `event` set to "warn", "start" or "end" when that happens.
+ */
+export function updateDizzy(state, { dt, speed, vx, now }) {
+  let { level = 0, dizzy = false, since = 0, warned = false, lastDir = 0 } = state;
+  let event = null;
+  if (speed > 1100) level += (dt * (speed - 1100)) / 1000;
+  const dir = Math.abs(vx) > 900 ? Math.sign(vx) : 0;
+  if (dir && lastDir && dir !== lastDir) level += 0.35; // a shake
+  if (dir) lastDir = dir;
+  else if (speed < 300) lastDir = 0;
+  if (speed < 600) level -= dt * (dizzy ? 0.6 : 0.4);
+  else if (speed < 1100) level -= dt * 0.15;
+  level = Math.max(0, Math.min(DIZZY.max, level));
+  if (!dizzy && level >= DIZZY.start) {
+    dizzy = true;
+    since = now;
+    event = "start";
+  } else if (!dizzy && !warned && level >= DIZZY.warn) {
+    warned = true;
+    event = "warn";
+  } else if (dizzy && level <= DIZZY.end && now - since > DIZZY.minSeconds * 1000) {
+    dizzy = false;
+    warned = false;
+    event = "end";
+  }
+  if (!dizzy && level < 0.5) warned = false;
+  return { level, dizzy, since, warned, lastDir, event };
+}
 
 /**
  * Where the pet sits, relative to the cursor's tip: astride the arrow, with the tip just
@@ -22,6 +61,8 @@ export const SEAT = { x: 3, y: 6 };
 const SIZE = 48; // the pet on the cursor, in CSS pixels (its 16×16 sprite × 3)
 const TAIL = ["WWWWo", "oWWWo", ".oWWo", "..oWo", "...oo", "....o"];
 const LEG = ["oFo", "oFo", "oFo", "oFo", "oFo", "oPo", "ooo"]; // a dangling leg, F fur and P paw
+const STAR = ["..o..", ".oYo.", "oYYYo", ".oYo.", "..o.."]; // a little star circling a dizzy head
+const PX = SIZE / 16; // one pet pixel, in CSS pixels
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
@@ -59,9 +100,19 @@ export class PetRider {
       leg.className = `rider-leg ${side}`;
       return leg;
     });
+    // Dizzy: swirly eyes over the pet's eyes, and stars going round its head.
+    this.eyes = document.createElement("div");
+    this.eyes.className = "rider-eyes";
+    this.stars = [0, 1, 2].map(() => {
+      const star = document.createElement("canvas");
+      star.className = "rider-star";
+      paint(star, STAR, { o: "#1d1830", Y: "#ffd23f" });
+      return star;
+    });
     this.body = document.createElement("div");
     this.body.className = "rider-body";
-    this.body.append(this.trail, ...this.legs, this.canvas); // legs behind the body
+    this.body.append(this.trail, ...this.legs, this.canvas, this.eyes, ...this.stars); // legs behind the body
+    document.fonts?.load('8px "Press Start 2P"').catch(() => {});
     this.text = document.createElement("span");
     const tail = document.createElement("canvas");
     tail.className = "rider-tail";
@@ -100,6 +151,8 @@ export class PetRider {
       clock: 0,
       flight: null, // climbing on or flying back: { from, to, start, ms, done }
       lastFrame: "",
+      dizzy: { level: 0, dizzy: false },
+      nextDizzyLine: 0,
     });
     if (follow === "page") {
       this.onMove = (e) => {
@@ -133,6 +186,26 @@ export class PetRider {
     this.lastFrame = "";
     const { fur, outline } = furOf(this.kind);
     for (const leg of this.legs) paint(leg, LEG, { o: outline, F: fur, P: shade(fur, 0.72) });
+    // swirly "@" eyes, each on a patch of the face so the real eye doesn't show through
+    const geo = petGeometry(this.kind);
+    const pet = PETS[this.kind];
+    this.eyes.replaceChildren(
+      ...geo.eyes.map((eye) => {
+        const node = document.createElement("i");
+        node.className = "rider-eye";
+        const beside = pet.rows[eye.top]?.[eye.left - 1];
+        node.style.background = beside && beside !== "." && beside !== "o" ? pet.palette[beside] : fur;
+        node.style.left = `${eye.left * PX - 1}px`;
+        node.style.top = `${eye.top * PX - 1}px`;
+        node.style.width = `${(eye.right - eye.left + 1) * PX + 2}px`;
+        node.style.height = `${Math.max(2, eye.bottom - eye.top + 1) * PX + 2}px`;
+        const swirl = document.createElement("span");
+        swirl.textContent = "@";
+        swirl.style.color = outline;
+        node.append(swirl);
+        return node;
+      }),
+    );
   }
 
   /** The cursor's speed, from the desktop app (pixels per second). */
@@ -212,8 +285,25 @@ export class PetRider {
     this.fastFor = speed > 1200 ? this.fastFor + dt * 1000 : 0;
     this.peak = Math.max(speed, this.peak * Math.pow(0.02, dt));
 
+    // ----- getting dizzy
+    this.dizzy = updateDizzy(this.dizzy, { dt, speed, vx: this.vx, now: t });
+    const { dizzy } = this.dizzy;
+    if (this.dizzy.event === "start") {
+      this.sleeping = false;
+      this.say(pick(RIDE_LINES.dizzy), 2600);
+      this.nextDizzyLine = t + 2800 + Math.random() * 1500;
+    } else if (this.dizzy.event === "warn") {
+      this.say(pick(RIDE_LINES.woozy), 1600);
+    } else if (this.dizzy.event === "end") {
+      this.say(pick(RIDE_LINES.better));
+    } else if (dizzy && t > this.nextDizzyLine) {
+      this.say(pick(RIDE_LINES.dizzy), 2400);
+      this.nextDizzyLine = t + 2800 + Math.random() * 1500;
+    }
+    this.el.classList.toggle("dizzy", dizzy);
+
     // ----- what to say
-    const next = this.flight
+    const next = this.flight || dizzy || this.dizzy.event
       ? null
       : nextLine({ now: t, speed, fastFor: this.fastFor, peak: this.peak, idleFor: t - this.lastMove, lastLine: this.lastLine, nextChatter: this.nextChatter, saidView: this.saidView, sleeping: this.sleeping });
     if (next?.kind === "sleep") {
@@ -236,7 +326,7 @@ export class PetRider {
       this.nextBlink = t + 1800 + Math.random() * 3000;
     }
     const blink = this.sleeping || t < this.blinkUntil;
-    const talk = !this.sleeping && (t < this.talkUntil ? Math.floor(this.clock * 9) % 2 === 0 : speed > 1200);
+    const talk = !this.sleeping && (t < this.talkUntil ? Math.floor(this.clock * 9) % 2 === 0 : speed > 1200 && !dizzy);
     const key = `${this.kind}|${blink}|${talk}`;
     if (key !== this.lastFrame) {
       this.lastFrame = key;
@@ -246,10 +336,20 @@ export class PetRider {
     // ----- leaning into the ride, bouncing along, speed lines when it's fast
     this.tilt += (clamp(-this.vx / 2600, -0.4, 0.4) - this.tilt) * k;
     const bounce = speed > 150 ? -Math.abs(Math.sin(this.clock * 18)) * Math.min(3, speed / 400) : Math.floor(this.clock * 1.6) % 2 ? -1 : 0;
-    this.body.style.transform = `translateY(${bounce.toFixed(1)}px) rotate(${this.tilt.toFixed(3)}rad)`;
+    // dizzy: a woozy sway from side to side
+    const sway = dizzy ? Math.sin(this.clock * 5.5) : 0;
+    this.body.style.transform = `translate(${(sway * 2).toFixed(1)}px, ${bounce.toFixed(1)}px) rotate(${(this.tilt + sway * 0.28).toFixed(3)}rad)`;
+    if (dizzy) {
+      this.stars.forEach((star, i) => {
+        const a = this.clock * 5 + (i * Math.PI * 2) / 3;
+        const front = Math.sin(a) > 0;
+        star.style.transform = `translate(${(SIZE / 2 - 6 + Math.cos(a) * 19).toFixed(1)}px, ${(-6 + Math.sin(a) * 4).toFixed(1)}px) scale(${front ? 1 : 0.75})`;
+        star.style.zIndex = front ? "3" : "0";
+      });
+    }
     this.trail.style.opacity = clamp((speed - 600) / 900, 0, 1).toFixed(2);
     // legs: a lazy dangle, or kicking like a jockey when you get going
-    const kick = speed > 150 ? Math.sin(this.clock * 16) * 22 : Math.sin(this.clock * 2.2) * 8;
+    const kick = dizzy ? Math.sin(this.clock * 3) * 5 : speed > 150 ? Math.sin(this.clock * 16) * 22 : Math.sin(this.clock * 2.2) * 8;
     this.legs[0].style.transform = `rotate(${(-6 + kick).toFixed(1)}deg)`;
     this.legs[1].style.transform = `rotate(${(6 - kick).toFixed(1)}deg)`;
     this.trail.classList.toggle("right", this.vx < 0);

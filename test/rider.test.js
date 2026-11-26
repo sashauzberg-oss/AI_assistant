@@ -49,3 +49,49 @@ test("the lines include the ones asked for", () => {
   assert.ok(RIDE_LINES.view.includes("Great view up here!"));
   assert.ok(RIDE_LINES.fast.includes("Wheee!"));
 });
+
+import { updateDizzy, DIZZY } from "../public/js/rider.js";
+
+/** Runs the dizzy meter for `seconds` of mouse movement given by `move(t)` -> { speed, vx }. */
+function ride(state, seconds, move, events = []) {
+  for (let i = 0; i < seconds * 60; i++) {
+    const now = (state.clock = (state.clock || 0) + 1000 / 60);
+    Object.assign(state, updateDizzy(state, { dt: 1 / 60, now, ...move(now) }));
+    if (state.event) events.push({ event: state.event, at: now });
+  }
+  return events;
+}
+
+test("shaking the mouse makes the pet dizzy fast, with a warning first", () => {
+  const state = {};
+  const events = ride(state, 2, (now) => ({ speed: 2400, vx: (Math.floor(now / 250) % 2 ? 1 : -1) * 2300 }));
+  assert.deepEqual(events.map((e) => e.event), ["warn", "start"]);
+  assert.ok(events[1].at < 2000, `dizzy after ${events[1].at}ms of shaking`);
+});
+
+test("zooming fast for a while makes it dizzy too, but a quick flick doesn't", () => {
+  const flick = {};
+  assert.deepEqual(ride(flick, 0.5, () => ({ speed: 2500, vx: 2500 })).filter((e) => e.event === "start"), []);
+  const zoom = {};
+  const events = ride(zoom, 4, () => ({ speed: 2500, vx: 2500 }));
+  assert.ok(events.some((e) => e.event === "start"));
+  const normal = {};
+  assert.deepEqual(ride(normal, 20, () => ({ speed: 700, vx: 700 })), [], "normal riding never gets dizzy");
+});
+
+test("it gets better a few seconds after you slow down", () => {
+  const state = {};
+  ride(state, 2, (now) => ({ speed: 2400, vx: (Math.floor(now / 250) % 2 ? 1 : -1) * 2300 }));
+  assert.equal(state.dizzy, true);
+  const startedAt = state.clock;
+  const events = ride(state, 10, () => ({ speed: 0, vx: 0 }));
+  const end = events.find((e) => e.event === "end");
+  assert.ok(end, "recovers");
+  assert.ok(end.at - startedAt >= DIZZY.minSeconds * 1000 - 2000 && end.at - startedAt < 9000, `recovered after ${end.at - startedAt}ms`);
+  assert.equal(state.dizzy, false);
+});
+
+test("the dizzy lines are there", () => {
+  assert.ok(RIDE_LINES.dizzy.includes("I'm so dizzy…"));
+  assert.ok(RIDE_LINES.woozy.length && RIDE_LINES.better.length);
+});

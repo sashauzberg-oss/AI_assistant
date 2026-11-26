@@ -1457,4 +1457,4 @@ ui.input.focus();
 desktop?.ready();
 
 // For automated tests and the browser console.
-window.nova = { submit, player, timers, conversation, snipper, voice, pet };
+window.nova = { submit, player, timers, conversation, snipper, voice, pet, get rider() { return pageRider; } };
