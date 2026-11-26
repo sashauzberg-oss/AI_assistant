@@ -31,7 +31,7 @@ const HELP = `Here's what I can do. Just type or say it:
 - **Notes**: “note buy milk”, “show my notes”, “delete note 2”
 - **Web & apps**: “open YouTube”, “search best pizza near me”, “cat videos on YouTube”, and in the desktop app “open Spotify” or “open calculator”
 - **Your pet**: click the pet next to the typing bar, or say “switch to a dog”, “be a penguin”, “call yourself Pixel”
-- **Fun**: “tell me a joke”, “fight scene” (or “fight a dragon”), “flip a coin”, “roll a dice”
+- **Fun**: “tell me a joke”, “fight scene” (or “fight a dragon”), “get on” (your pet rides your cursor; “get off” to stop), “flip a coin”, “roll a dice”
 - **Hands-free** (browser): turn on the 📡 button and say “Nova, …”`;
 
 // ---------- input validation (tool inputs come from the model; check them before acting) ----------
@@ -85,6 +85,7 @@ const SPECS = {
   open_app: { name: { type: "string", required: true } },
   tell_joke: { setup: { type: "string", required: true }, punchline: { type: "string", required: true } },
   fight_scene: { opponent: { type: "string" } },
+  ride_cursor: { action: { type: "string", required: true, enum: ["on", "off"] } },
 };
 
 // ---------- cards ----------
@@ -148,7 +149,7 @@ function linkCard(url, title, sub) {
 
 // ---------- the toolbox ----------
 
-export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, pet, getLastAnswer = () => "", openPetPicker = () => {}, performJoke = async () => {}, performFight = async () => null }) {
+export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, pet, getLastAnswer = () => "", openPetPicker = () => {}, performJoke = async () => {}, performFight = async () => null, rideCursor = async () => "unavailable" }) {
   const desktop = window.novaDesktop || null;
   const notes = {
     all: () => storage.get("notes", []),
@@ -346,6 +347,23 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
     return { text, result };
   }
 
+  /** "get on" / "get off": the pet rides the mouse cursor. Returns the reply. */
+  async function ride(on) {
+    const status = await rideCursor(on);
+    const name = pet?.name || "Your pet";
+    const sound = pet ? `${pet.persona.sound} ` : "";
+    const where = desktop ? "anywhere on your screen" : "around this page";
+    return (
+      {
+        on: `${sound}Hop! I'm riding your cursor. Take me ${where}! Say **get off** (or click my empty spot) to bring me back.`,
+        already: "I'm already riding your cursor! Wheee!",
+        "no-cursor": "There's no cursor to ride on a touch screen. Try it on a computer with a mouse or touchpad!",
+        off: "Thanks for the ride! 🐾",
+        "not-riding": `${name} is right here! Say **get on** and I'll hop onto your cursor.`,
+      }[status] || "I couldn't get on the cursor this time."
+    );
+  }
+
   function nextJoke() {
     const recent = storage.get("recentJokes", []);
     const joke = randomJoke(recent);
@@ -497,6 +515,11 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
       if (!joke.setup || !joke.punchline) return { content: "Give both a setup and a punchline.", isError: true };
       await tellJoke(joke, ui);
       return { content: "Done: the joke was performed on stage and is shown in the chat. Reply with only a short sign-off; don't repeat the joke." };
+    },
+
+    async ride_cursor({ action }) {
+      const reply = await ride(action === "on");
+      return { content: `${reply}\n(That message was shown to the user. Reply with just a few words.)` };
     },
 
     async fight_scene({ opponent }, ui) {
@@ -673,6 +696,8 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
       case "joke":
         await tellJoke(nextJoke(), ui);
         return "";
+      case "ride":
+        return ride(a.on);
       case "fight": {
         const outcome = await fightScene(a.foe, ui);
         return typeof outcome === "string" ? outcome : "";

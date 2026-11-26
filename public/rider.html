@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" class="rider-html">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nova rider</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/rider.css">
+</head>
+<body class="rider-page">
+  <!-- The desktop app's little see-through window that rides the cursor; it moves the window, this draws the pet. -->
+  <script type="module">
+    import { PetRider, RIDE_LINES } from "./js/rider.js";
+
+    let pet = {};
+    try {
+      pet = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+    } catch {
+      // the default pet
+    }
+    const bridge = window.novaRider;
+    const rider = new PetRider({ ...pet, root: document.body, follow: "window" });
+    window.rider = rider;
+    bridge?.onMotion(({ vx, vy }) => rider.motion(vx, vy));
+    bridge?.onLand(() => rider.land());
+    bridge?.onPet((next) => rider.setPet(next));
+    bridge?.onLeave(async ({ flying }) => {
+      if (flying) {
+        // the app flies the window back to the bar, then closes it
+        rider.say(RIDE_LINES.leave[Math.floor(Math.random() * RIDE_LINES.leave.length)], 3000);
+        return;
+      }
+      await rider.leave();
+      bridge.left();
+    });
+  </script>
+</body>
+</html>

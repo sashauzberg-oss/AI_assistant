@@ -134,6 +134,7 @@ test("streams text and returns tool calls for the browser to run", async () => {
   assert.ok(req.body.tools.filter((t) => !t.type).every((t) => t.eager_input_streaming === true));
   assert.ok(req.body.tools.some((t) => t.name === "tell_joke"), "jokes go on stage");
   assert.ok(req.body.tools.some((t) => t.name === "fight_scene"), "fights too");
+  assert.ok(req.body.tools.some((t) => t.name === "ride_cursor"), "and rides on the cursor");
   assert.match(req.body.system.at(-1).text, /November 24, 2026/);
 });
 

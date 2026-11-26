@@ -1,0 +1,79 @@
+/* =====================================================================
+   The pet riding the cursor (public/js/rider.js)
+   ===================================================================== */
+.rider {
+  --rider-bubble: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Cpath fill='%23ffffff' d='M2 1h8v1h1v8h-1v1H2v-1H1V2h1z'/%3E%3Cpath fill='%231d1830' d='M2 0h8v1H2zM2 11h8v1H2zM0 2h1v8H0zM11 2h1v8h-1zM1 1h1v1H1zM10 1h1v1h-1zM1 10h1v1H1zM10 10h1v1h-1z'/%3E%3C/svg%3E");
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2147482000;
+  width: 48px;
+  height: 48px;
+  pointer-events: none;
+  will-change: transform;
+}
+.rider.window { position: absolute; left: 50%; top: auto; bottom: 10px; margin-left: -24px; }
+.rider canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+.rider-body { position: absolute; inset: 0; transform-origin: 50% 100%; }
+.rider-pet { width: 100%; height: 100%; filter: drop-shadow(0 2px 0 rgba(20, 10, 40, 0.35)); }
+.rider-pet.landing { animation: rider-land 0.32s steps(4); }
+@keyframes rider-land {
+  0% { transform: scale(1.3, 0.7); }
+  50% { transform: scale(0.9, 1.15); }
+  100% { transform: none; }
+}
+/* speed lines on the side the pet is coming from */
+.rider-trail {
+  position: absolute;
+  right: 100%;
+  top: 22%;
+  width: 22px;
+  height: 52%;
+  margin-right: 2px;
+  opacity: 0;
+  background:
+    linear-gradient(90deg, transparent, #2b2140) 0 15% / 100% 3px no-repeat,
+    linear-gradient(90deg, transparent, #2b2140) 6px 50% / 75% 3px no-repeat,
+    linear-gradient(90deg, transparent, #2b2140) 0 85% / 100% 3px no-repeat;
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
+}
+.rider-trail.right { right: auto; left: 100%; margin: 0 0 0 2px; transform: scaleX(-1); }
+.rider-bubble {
+  --shift: 0px;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  max-width: 230px;
+  width: max-content;
+  padding: 0 4px;
+  border-style: solid;
+  border-width: 8px;
+  border-image: var(--rider-bubble) 4 fill / 8px stretch;
+  color: #1d1830;
+  font: 700 15px/1.2 "Pixelify Sans", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: none;
+  text-align: center;
+  filter: drop-shadow(2px 2px 0 rgba(20, 10, 40, 0.3));
+  transform: translateX(calc(-50% + var(--shift))) scale(0);
+  transform-origin: 50% 100%;
+  transition: transform 0.14s steps(3);
+}
+.rider-bubble.show { transform: translateX(calc(-50% + var(--shift))) scale(1); }
+.rider.sleepy .rider-bubble { font-size: 13px; color: #5d4b90; }
+.rider-tail { position: absolute; left: calc(50% - var(--shift) - 9px); top: calc(100% + 6px); width: 10px; height: 12px; }
+.rider.window.leaving { animation: rider-leave 0.5s steps(5) forwards; }
+@keyframes rider-leave { to { opacity: 0; transform: translateY(-34px) scale(0.6); } }
+.pet-dock.away .pet-sprite { opacity: 0; }
+.pet-dock.away::after {
+  content: "↗";
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translateX(-50%);
+  font: 18px var(--pixel-font, monospace);
+  color: var(--muted);
+  animation: pet-bob 1s steps(1, end) infinite;
+}
+
+/* the desktop app's see-through rider window */
+html.rider-html, body.rider-page { background: transparent !important; margin: 0; overflow: hidden; }

@@ -1,0 +1,272 @@
+// Your pet riding the mouse cursor ("get on"): it sits on the pointer while you move it,
+// leans into the turns, and says things now and then ("Great view up here!", "Wheee!").
+// In the browser it rides inside the page. In the desktop app it lives in a small
+// see-through window that follows the cursor around the whole screen (public/rider.html).
+import { PETS, drawPet } from "./pets.js";
+
+export const RIDE_LINES = {
+  land: ["Hop! I'm on!", "Great view up here!", "All aboard!", "Let's ride!"],
+  fast: ["Wheee!", "Wheeeee!", "Zoooom!", "Faster! Faster!", "Whoa, so fast!", "Yahoo!", "We're flying!"],
+  stop: ["Whoa!", "Careful!", "Hey, warn me first!", "Phew!"],
+  view: ["Great view up here!", "I can see everything from up here!", "Nice view!", "Where to next?", "Are we there yet?", "Comfy up here."],
+  chatter: ["This is fun!", "Hold on tight!", "Left! No, right!", "Ooh, where are we going?", "Best. Ride. Ever.", "Beep beep!", "*hums a tune*"],
+  wake: ["Huh? We're moving!", "I'm awake! I'm awake!", "Whoa, where are we?"],
+  leave: ["Thanks for the ride!", "That was fun!", "Bye-bye, cursor!"],
+};
+
+/** Where the pet sits, relative to the cursor's tip: its feet just over the arrow. */
+export const SEAT = { x: 5, y: 3 };
+const SIZE = 48; // the pet on the cursor, in CSS pixels (its 16×16 sprite × 3)
+const TAIL = ["WWWWo", "oWWWo", ".oWWo", "..oWo", "...oo", "....o"];
+
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+
+/**
+ * What kind of line the pet says next, given how the ride is going (speeds in pixels
+ * per second, times in milliseconds). Returns { kind } or null. Pure, so it can be tested.
+ */
+export function nextLine({ now, speed, fastFor, peak, idleFor, lastLine, nextChatter, saidView, sleeping }) {
+  if (sleeping) return speed > 60 ? { kind: "wake" } : null;
+  if (idleFor > 40000) return { kind: "sleep" };
+  const quiet = now - lastLine;
+  if (speed > 1200 && fastFor > 120 && quiet > 2200) return { kind: "fast" };
+  if (peak > 1500 && speed < 80 && quiet > 2500) return { kind: "stop" };
+  if (idleFor > 4500 && !saidView && quiet > 5000) return { kind: "view" };
+  if (speed > 60 && quiet > nextChatter) return { kind: "chatter" };
+  return null;
+}
+
+export class PetRider {
+  /**
+   * follow "page": rides the cursor inside this page. follow "window": stays put in its
+   * window (the desktop app moves the window) and gets the cursor's speed from motion().
+   */
+  constructor({ kind = "cat", name = "", sound = "", root = document.body, follow = "page", cursor = null } = {}) {
+    this.follow = follow;
+    this.canvas = document.createElement("canvas");
+    this.canvas.className = "rider-pet";
+    this.trail = document.createElement("i");
+    this.trail.className = "rider-trail";
+    this.body = document.createElement("div");
+    this.body.className = "rider-body";
+    this.body.append(this.trail, this.canvas);
+    this.text = document.createElement("span");
+    const tail = document.createElement("canvas");
+    tail.className = "rider-tail";
+    paint(tail, TAIL, { W: "#ffffff", o: "#1d1830" });
+    this.bubble = document.createElement("div");
+    this.bubble.className = "rider-bubble";
+    this.bubble.append(this.text, tail);
+    this.el = document.createElement("div");
+    this.el.className = `rider ${follow}`;
+    this.el.setAttribute("aria-hidden", "true");
+    this.el.append(this.bubble, this.body);
+    root.append(this.el);
+    this.setPet({ kind, name, sound });
+
+    const now = performance.now();
+    Object.assign(this, {
+      x: cursor?.x ?? window.innerWidth / 2, // where the cursor was last seen
+      y: cursor?.y ?? window.innerHeight / 2,
+      rawVx: 0,
+      rawVy: 0,
+      vx: 0,
+      vy: 0,
+      lastInput: 0,
+      lastMove: now,
+      fastFor: 0,
+      peak: 0,
+      lastLine: now,
+      nextChatter: 9000 + Math.random() * 6000,
+      saidView: false,
+      sleeping: false,
+      bubbleUntil: 0,
+      talkUntil: 0,
+      nextBlink: now + 2000,
+      blinkUntil: 0,
+      tilt: 0,
+      clock: 0,
+      flight: null, // climbing on or flying back: { from, to, start, ms, done }
+      lastFrame: "",
+    });
+    if (follow === "page") {
+      this.onMove = (e) => {
+        if (e.pointerType && e.pointerType !== "mouse" && e.pointerType !== "pen") return;
+        const t = e.timeStamp;
+        if (this.lastInput && t > this.lastInput) {
+          const dt = (t - this.lastInput) / 1000;
+          this.rawVx = (e.clientX - this.x) / dt;
+          this.rawVy = (e.clientY - this.y) / dt;
+        }
+        this.lastInput = t;
+        this.x = e.clientX;
+        this.y = e.clientY;
+      };
+      window.addEventListener("pointermove", this.onMove, { passive: true });
+    }
+    this.last = now;
+    this.raf = requestAnimationFrame((t) => this.frame(t));
+  }
+
+  setPet({ kind, name, sound }) {
+    this.kind = PETS[kind] ? kind : "cat";
+    this.name = name || PETS[this.kind].name;
+    this.sound = sound || PETS[this.kind].sound;
+    this.lastFrame = "";
+  }
+
+  /** The cursor's speed, from the desktop app (pixels per second). */
+  motion(vx, vy) {
+    this.rawVx = Number(vx) || 0;
+    this.rawVy = Number(vy) || 0;
+    this.lastInput = performance.now();
+  }
+
+  say(text, ms = 2300) {
+    const now = performance.now();
+    this.text.textContent = text;
+    this.bubble.classList.add("show");
+    this.el.classList.toggle("sleepy", text.startsWith("Zz"));
+    this.bubbleUntil = ms === Infinity ? Infinity : now + ms;
+    this.talkUntil = now + Math.min(1400, 250 + text.length * 55);
+    this.lastLine = now;
+  }
+
+  /** Page mode: hop from `from` (where the pet was) onto the cursor. */
+  climb(from) {
+    return new Promise((resolve) => {
+      this.flight = { from, to: null, start: performance.now(), ms: 650, done: resolve };
+    }).then(() => this.land());
+  }
+
+  /** Landing on the cursor: a little squash, and something to say. */
+  land() {
+    this.canvas.classList.remove("landing");
+    void this.canvas.offsetWidth;
+    this.canvas.classList.add("landing");
+    setTimeout(() => this.say(pick(RIDE_LINES.land)), 180);
+  }
+
+  /** Get off: fly back to `to` (page mode), or hop up and fade away. Resolves when gone. */
+  leave(to = null) {
+    this.say(pick(RIDE_LINES.leave), 1600);
+    return new Promise((resolve) => {
+      if (this.follow === "page" && to) {
+        setTimeout(() => {
+          this.flight = { from: { x: this.x + SEAT.x, y: this.y + SEAT.y }, to, start: performance.now(), ms: 550, done: resolve };
+        }, 500);
+      } else {
+        setTimeout(() => {
+          this.el.classList.add("leaving");
+          setTimeout(resolve, 520);
+        }, 600);
+      }
+    }).then(() => this.destroy());
+  }
+
+  destroy() {
+    cancelAnimationFrame(this.raf);
+    if (this.onMove) window.removeEventListener("pointermove", this.onMove);
+    this.el.remove();
+  }
+
+  frame(t) {
+    const dt = Math.min(0.05, (t - this.last) / 1000);
+    this.last = t;
+    this.clock += dt;
+    // No news from the cursor for a moment means it has stopped.
+    if (t - this.lastInput > 70) {
+      this.rawVx = 0;
+      this.rawVy = 0;
+    }
+    const k = Math.min(1, dt * 10);
+    this.vx += (this.rawVx - this.vx) * k;
+    this.vy += (this.rawVy - this.vy) * k;
+    const speed = Math.hypot(this.vx, this.vy);
+    if (speed > 60) {
+      this.lastMove = t;
+      this.saidView = false;
+    }
+    this.fastFor = speed > 1200 ? this.fastFor + dt * 1000 : 0;
+    this.peak = Math.max(speed, this.peak * Math.pow(0.02, dt));
+
+    // ----- what to say
+    const next = this.flight
+      ? null
+      : nextLine({ now: t, speed, fastFor: this.fastFor, peak: this.peak, idleFor: t - this.lastMove, lastLine: this.lastLine, nextChatter: this.nextChatter, saidView: this.saidView, sleeping: this.sleeping });
+    if (next?.kind === "sleep") {
+      this.sleeping = true;
+      this.say("Zzz…", Infinity);
+    } else if (next?.kind === "wake") {
+      this.sleeping = false;
+      this.say(pick(RIDE_LINES.wake));
+    } else if (next) {
+      if (next.kind === "view") this.saidView = true;
+      if (next.kind === "stop") this.peak = 0;
+      if (next.kind === "chatter") this.nextChatter = 9000 + Math.random() * 7000;
+      this.say(next.kind === "chatter" && Math.random() < 0.25 ? this.sound : pick(RIDE_LINES[next.kind]));
+    }
+    if (t > this.bubbleUntil) this.bubble.classList.remove("show");
+
+    // ----- the pet's face
+    if (t > this.nextBlink) {
+      this.blinkUntil = t + 150;
+      this.nextBlink = t + 1800 + Math.random() * 3000;
+    }
+    const blink = this.sleeping || t < this.blinkUntil;
+    const talk = !this.sleeping && (t < this.talkUntil ? Math.floor(this.clock * 9) % 2 === 0 : speed > 1200);
+    const key = `${this.kind}|${blink}|${talk}`;
+    if (key !== this.lastFrame) {
+      this.lastFrame = key;
+      drawPet(this.canvas, this.kind, { blink, talk });
+    }
+
+    // ----- leaning into the ride, bouncing along, speed lines when it's fast
+    this.tilt += (clamp(-this.vx / 2600, -0.4, 0.4) - this.tilt) * k;
+    const bounce = speed > 150 ? -Math.abs(Math.sin(this.clock * 18)) * Math.min(3, speed / 400) : Math.floor(this.clock * 1.6) % 2 ? -1 : 0;
+    this.body.style.transform = `translateY(${bounce.toFixed(1)}px) rotate(${this.tilt.toFixed(3)}rad)`;
+    this.trail.style.opacity = clamp((speed - 600) / 900, 0, 1).toFixed(2);
+    this.trail.classList.toggle("right", this.vx < 0);
+
+    // ----- where the pet is (page mode; in the desktop app the window moves instead)
+    if (this.follow === "page") {
+      let x = this.x + SEAT.x;
+      let y = this.y + SEAT.y;
+      if (this.flight) {
+        const f = this.flight;
+        const p = Math.min(1, (t - f.start) / f.ms);
+        const to = f.to || { x, y };
+        const e = ease(p);
+        x = f.from.x + (to.x - f.from.x) * e;
+        y = f.from.y + (to.y - f.from.y) * e - 90 * Math.sin(Math.PI * p);
+        if (p >= 1) {
+          this.flight = null;
+          f.done();
+        }
+      }
+      this.el.style.transform = `translate(${Math.round(x - SIZE / 2)}px, ${Math.round(y - SIZE)}px)`;
+      // keep the speech bubble on screen
+      if (this.bubble.classList.contains("show")) {
+        const w = this.bubble.offsetWidth;
+        const shift = clamp(x - w / 2, 8, window.innerWidth - w - 8) - (x - w / 2);
+        this.bubble.style.setProperty("--shift", `${Math.round(shift)}px`);
+      }
+    }
+    this.raf = requestAnimationFrame((time) => this.frame(time));
+  }
+}
+
+function paint(canvas, rows, colors) {
+  canvas.width = rows[0].length;
+  canvas.height = rows.length;
+  const ctx = canvas.getContext("2d");
+  rows.forEach((row, y) =>
+    [...row].forEach((ch, x) => {
+      if (!colors[ch]) return;
+      ctx.fillStyle = colors[ch];
+      ctx.fillRect(x, y, 1, 1);
+    }),
+  );
+}

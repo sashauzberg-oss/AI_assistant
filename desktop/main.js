@@ -52,6 +52,9 @@ let snipping = false;
 let quitting = false;
 let keepOpen = false; // the page asks to stay open (file picker, settings)
 let stage = null; // the full-screen joke cutscene window, while it's on
+let ride = null; // the pet riding the cursor: its window and how the ride is going
+let fakeCursor = null; // tests can steer the "cursor"
+const cursorPoint = () => fakeCursor || screen.getCursorScreenPoint();
 let movingProgrammatically = false;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -352,6 +355,138 @@ function playCutscene(show) {
   });
 }
 
+// ------------------------------------------------------------------ the pet rides the cursor
+
+const RIDER = { width: 260, height: 150 }; // room for the pet and its speech bubble
+const SEAT = { x: 5, y: 3 }; // where the pet's feet go, from the cursor's tip (as in public/js/rider.js)
+const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+
+/** Moves the rider window so the pet sits on `point` (a cursor position). */
+function placeRider(point) {
+  const x = Math.round(point.x + SEAT.x - RIDER.width / 2);
+  const y = Math.round(point.y + SEAT.y - (RIDER.height - 10));
+  const [cx, cy] = ride.win.getPosition();
+  if (cx !== x || cy !== y) ride.win.setPosition(x, y);
+}
+
+/**
+ * "get on": a small see-through, click-through window with the pet follows the cursor
+ * around the screen. It hops over from the bar (`from`, a screen point) first.
+ */
+function startRide(pet, from) {
+  if (ride) {
+    ride.win.webContents.send("rider:pet", pet);
+    return true;
+  }
+  const start = from || cursorPoint();
+  const win = new BrowserWindow({
+    ...RIDER,
+    x: Math.round(start.x + SEAT.x - RIDER.width / 2),
+    y: Math.round(start.y + SEAT.y - (RIDER.height - 10)),
+    frame: false,
+    show: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    title: "Nova rider",
+    webPreferences: { preload: path.join(here, "rider-preload.cjs"), contextIsolation: true, sandbox: true, backgroundThrottling: false },
+  });
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.setIgnoreMouseEvents(true); // clicks go straight through to whatever is underneath
+  if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  lockDown(win, serverUrl);
+  const bar = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && from ? mainWindow.getPosition() : null;
+  ride = {
+    win,
+    name: pet.name || "your pet",
+    phase: "climb",
+    startedAt: 0,
+    from: start,
+    dock: bar ? { x: from.x - bar[0], y: from.y - bar[1] } : null, // where to fly back to, on the bar
+    trail: [],
+    timer: null,
+  };
+  win.once("ready-to-show", () => {
+    if (!ride || ride.win !== win) return;
+    win.showInactive();
+    ride.startedAt = Date.now();
+    ride.timer = setInterval(rideTick, 16);
+  });
+  win.on("closed", () => {
+    if (ride?.win === win) finishRide();
+  });
+  win.webContents.on("render-process-gone", () => finishRide());
+  win.loadURL(`${new URL("rider.html", serverUrl)}#${encodeURIComponent(JSON.stringify(pet))}`).catch(() => finishRide());
+  buildTrayMenu();
+  return true;
+}
+
+function rideTick() {
+  if (!ride || ride.win.isDestroyed()) return;
+  const now = Date.now();
+  const point = cursorPoint();
+  if (ride.phase === "climb" || ride.phase === "fly-back") {
+    const ms = ride.phase === "climb" ? 650 : 550;
+    const t = Math.min(1, (now - ride.startedAt) / ms);
+    const to = ride.phase === "climb" ? point : ride.to;
+    const e = easeInOut(t);
+    placeRider({ x: ride.from.x + (to.x - ride.from.x) * e, y: ride.from.y + (to.y - ride.from.y) * e - 90 * Math.sin(Math.PI * t) });
+    if (t < 1) return;
+    if (ride.phase === "fly-back") return finishRide();
+    ride.phase = "ride";
+    ride.trail = [{ ...point, t: now }];
+    ride.win.webContents.send("rider:land");
+    return;
+  }
+  if (ride.phase !== "ride") return;
+  // The cursor's speed over the last tenth of a second, so uneven updates don't make it jumpy.
+  ride.trail.push({ ...point, t: now });
+  while (ride.trail.length > 2 && now - ride.trail[0].t > 100) ride.trail.shift();
+  const first = ride.trail[0];
+  const dt = Math.max(0.016, (now - first.t) / 1000);
+  placeRider(point);
+  ride.win.webContents.send("rider:motion", { vx: (point.x - first.x) / dt, vy: (point.y - first.y) / dt });
+}
+
+/** "get off": the pet says goodbye and flies back to the bar (or hops off if the bar is away). */
+function stopRide() {
+  if (!ride || ride.phase === "leaving" || ride.phase === "fly-back") return;
+  if (ride.phase === "climb") return finishRide();
+  ride.phase = "leaving";
+  const back = ride.dock && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow.getPosition() : null;
+  ride.win.webContents.send("rider:leave", { flying: !!back });
+  const current = ride;
+  if (back) {
+    // say goodbye for a moment, then fly home
+    setTimeout(() => {
+      if (ride !== current) return;
+      ride.phase = "fly-back";
+      ride.from = { ...cursorPoint() };
+      ride.to = { x: back[0] + ride.dock.x, y: back[1] + ride.dock.y };
+      ride.startedAt = Date.now();
+    }, 500);
+  }
+  setTimeout(() => ride === current && finishRide(), 2500); // never leave it hanging
+}
+
+function finishRide() {
+  if (!ride) return;
+  const { win, timer } = ride;
+  ride = null;
+  clearInterval(timer);
+  if (!win.isDestroyed()) win.destroy();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("nova:ride-state", false);
+  buildTrayMenu();
+}
+
 function encode(image) {
   let img = image;
   const { width, height } = img.getSize();
@@ -372,14 +507,18 @@ export async function snip({ hideNova = false, mode = "answer" } = {}) {
   if (snipping) return null;
   snipping = true;
   const restoreNova = hideNova && mainWindow?.isVisible();
+  const riderWin = ride && !ride.win.isDestroyed() && ride.win.isVisible() ? ride.win : null;
   try {
     if (popup) {
       popup.destroy();
       popup = null;
     }
+    if (riderWin) riderWin.hide(); // keep the pet out of the screenshot
     if (restoreNova) {
       mainWindow.hide();
       await sleep(isMac ? 350 : 250); // let the window finish disappearing
+    } else if (riderWin) {
+      await sleep(150);
     }
     const captured = await captureDisplay();
     if (!captured) return null;
@@ -405,6 +544,7 @@ export async function snip({ hideNova = false, mode = "answer" } = {}) {
   } finally {
     snipping = false;
     if (restoreNova) showMain();
+    if (riderWin && !riderWin.isDestroyed()) riderWin.showInactive();
   }
 }
 
@@ -487,6 +627,7 @@ function buildTrayMenu() {
     { label: "Snip & answer", accelerator: settings.hotkeys.snip || undefined, click: () => snipAndAnswer() },
     { type: "separator" },
   ];
+  if (ride) items.push({ label: `Get ${ride.name} off the cursor`, click: stopRide }, { type: "separator" });
   if (process.platform === "win32" || isMac) {
     items.push({
       label: "Start Nova when I sign in",
@@ -579,6 +720,22 @@ function setupIpc() {
       show.foeName = text(scene.foeName, 30);
     }
     return playCutscene(show);
+  });
+  ipcMain.handle("nova:ride", (event, opts) => {
+    if (!fromMain(event) || !opts || typeof opts !== "object") return false;
+    if (!opts.on) {
+      const was = !!ride;
+      stopRide();
+      return was;
+    }
+    const text = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
+    const pet = { kind: text(opts.kind, 20), name: text(opts.name, 24), sound: text(opts.sound, 30) };
+    const from = Number.isFinite(opts.from?.x) && Number.isFinite(opts.from?.y) ? { x: opts.from.x, y: opts.from.y } : null;
+    return startRide(pet, from);
+  });
+  ipcMain.handle("nova:riding", (event) => fromMain(event) && !!ride);
+  ipcMain.on("rider:left", (event) => {
+    if (ride && !ride.win.isDestroyed() && event.sender === ride.win.webContents && ride.phase === "leaving") finishRide();
   });
   ipcMain.handle("nova:open-app", (event, name) => {
     if (!fromMain(event) || typeof name !== "string") return { ok: false, error: "Invalid app name." };
@@ -711,5 +868,5 @@ app.whenReady().then(async () => {
     });
   }
 
-  if (process.env.NOVA_TEST) globalThis.novaTest = { snip, snipAndAnswer, showMain, getPopup: () => popup, getMain: () => mainWindow, getStage: () => stage, hasTray: () => !!tray };
+  if (process.env.NOVA_TEST) globalThis.novaTest = { snip, snipAndAnswer, showMain, getPopup: () => popup, getMain: () => mainWindow, getStage: () => stage, hasTray: () => !!tray, getRide: () => ride && { phase: ride.phase, bounds: ride.win.getBounds(), visible: ride.win.isVisible() }, setCursor: (point) => (fakeCursor = point), stopRide };
 });

@@ -13,6 +13,7 @@ import { PetBuddy, createPetPicker, PETS } from "./pets.js";
 import { attachAutocorrect, loadCorrector } from "./autocorrect.js";
 import { playJokeShow } from "./cutscene.js";
 import { playFightScene, chooseFoe, foeName } from "./fight.js";
+import { PetRider, SEAT } from "./rider.js";
 
 applyIcons();
 
@@ -636,6 +637,7 @@ const toolbox = createToolbox({
   openPetPicker: () => togglePetPicker(true),
   performJoke,
   performFight,
+  rideCursor,
 });
 
 // ---------------------------------------------------------------- sending
@@ -1083,7 +1085,66 @@ function togglePetPicker(force) {
   petPicker.hidden = force === undefined ? !petPicker.hidden : !force;
   if (!petPicker.hidden) petPicker.querySelector('[aria-pressed="true"]')?.focus();
 }
-petDock.addEventListener("click", () => togglePetPicker());
+petDock.addEventListener("click", () => (riding ? rideCursor(false) : togglePetPicker()));
+
+// ---------------------------------------------------------------- the pet rides the cursor ("get on")
+
+let riding = false;
+let pageRider = null; // in the browser, the pet rides inside the page
+let lastPointer = null; // where the mouse was last seen on the page
+window.addEventListener("pointermove", (e) => e.pointerType === "mouse" && (lastPointer = { x: e.clientX, y: e.clientY }), { passive: true });
+
+function setRiding(on) {
+  riding = on;
+  petDock.classList.toggle("away", on);
+  petDock.title = on ? `${pet.name} is riding your cursor: click to call them back` : `${pet.name} the ${pet.pet.animal}: click to choose another pet`;
+}
+
+/** Where the pet sits in the dock, as the point its feet are on (in page coordinates). */
+function dockSeat() {
+  const box = petDock.querySelector(".pet-sprite").getBoundingClientRect();
+  return { x: box.left + box.width / 2, y: box.bottom - 4 };
+}
+
+/** "get on" / "get off". Resolves with what happened: on, already, off, not-riding or no-cursor. */
+async function rideCursor(on) {
+  const persona = { kind: pet.kind, name: pet.name, sound: pet.persona.sound };
+  if (!on) {
+    if (!riding) return "not-riding";
+    setRiding(false);
+    if (desktop) await desktop.ride({ on: false });
+    else if (pageRider) {
+      const rider = pageRider;
+      pageRider = null;
+      petDock.classList.add("away"); // stay empty until the pet is back
+      rider.leave(dockSeat()).finally(() => petDock.classList.toggle("away", riding));
+    }
+    return "off";
+  }
+  if (riding) return "already";
+  if (desktop) {
+    const seat = dockSeat();
+    const from = { x: window.screenX + seat.x - SEAT.x, y: window.screenY + seat.y - SEAT.y };
+    if (!(await desktop.ride({ on: true, ...persona, from }))) return "unavailable";
+  } else {
+    if (!window.matchMedia("(pointer: fine)").matches) return "no-cursor";
+    pageRider = new PetRider({ ...persona, follow: "page", cursor: lastPointer });
+    const seat = dockSeat();
+    pageRider.climb({ x: seat.x, y: seat.y });
+  }
+  setRiding(true);
+  return "on";
+}
+
+// A new pet (or name) while riding: the one on the cursor changes too.
+pet.addEventListener("change", () => {
+  if (!riding) return;
+  const persona = { kind: pet.kind, name: pet.name, sound: pet.persona.sound };
+  if (desktop) desktop.ride({ on: true, ...persona });
+  else pageRider?.setPet(persona);
+  setRiding(true);
+});
+desktop?.onRideState?.((on) => setRiding(on)); // e.g. "get off" from the tray menu
 
 // In the browser, the pet sits to the left of the typing bar.
 if (!desktop) {
