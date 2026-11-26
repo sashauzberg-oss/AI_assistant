@@ -115,6 +115,12 @@ export class PetRider {
         this.y = e.clientY;
       };
       window.addEventListener("pointermove", this.onMove, { passive: true });
+      this.onLeave = (e) => {
+        if (!e.relatedTarget) this.el.classList.add("waiting");
+      };
+      this.onEnter = () => this.el.classList.remove("waiting");
+      document.addEventListener("mouseout", this.onLeave);
+      document.addEventListener("mouseover", this.onEnter);
     }
     this.last = now;
     this.raf = requestAnimationFrame((t) => this.frame(t));
@@ -181,6 +187,8 @@ export class PetRider {
   destroy() {
     cancelAnimationFrame(this.raf);
     if (this.onMove) window.removeEventListener("pointermove", this.onMove);
+    if (this.onLeave) document.removeEventListener("mouseout", this.onLeave);
+    if (this.onEnter) document.removeEventListener("mouseover", this.onEnter);
     this.el.remove();
   }
 

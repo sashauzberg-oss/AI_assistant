@@ -12,6 +12,7 @@
   pointer-events: none;
   will-change: transform;
 }
+.rider.waiting { opacity: 0; } /* the cursor left the page; back on when it returns */
 .rider.window { position: absolute; left: 50%; top: auto; bottom: 22px; margin-left: -24px; }
 .rider canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 .rider-body { position: absolute; inset: 0; transform-origin: 50% 100%; }

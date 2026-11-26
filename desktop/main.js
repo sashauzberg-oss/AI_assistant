@@ -1,7 +1,7 @@
 // Nova desktop app: a floating typing bar (like Spotlight) that grows to show answers,
 // plus a global hotkey that snips any part of the screen (like the Snipping Tool) and
 // answers the question in it.
-import { app, BrowserWindow, Menu, Tray, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, screen, session, shell, systemPreferences, Notification } from "electron";
+import { app, BrowserWindow, Menu, Tray, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerSaveBlocker, screen, session, shell, systemPreferences, Notification } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,10 @@ const ui = (name) => path.join(here, "ui", name);
 const isMac = process.platform === "darwin";
 
 if (process.env.NOVA_USER_DATA) app.setPath("userData", process.env.NOVA_USER_DATA);
+// Nova works in the background (music, timers, the pet riding the cursor): don't let
+// Chromium slow its timers down when its windows aren't in front.
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
@@ -366,17 +370,34 @@ const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 function placeRider(point) {
   const x = Math.round(point.x + SEAT.x - RIDER.width / 2);
   const y = Math.round(point.y + SEAT.y - (RIDER.height - RIDER_BOTTOM));
+  if (ride.placed?.x !== x || ride.placed?.y !== y) {
+    ride.win.setPosition(x, y);
+    ride.placed = { x, y };
+  }
+  // Check the window really went there: if the system didn't move it (crossing to
+  // another screen, say), move it again with its whole frame.
   const [cx, cy] = ride.win.getPosition();
-  if (cx !== x || cy !== y) ride.win.setPosition(x, y);
+  if (Math.abs(cx - x) > 1 || Math.abs(cy - y) > 1) {
+    if (++ride.stuck > 4) {
+      ride.win.setBounds({ x, y, ...RIDER });
+      ride.stuck = 0;
+    }
+  } else {
+    ride.stuck = 0;
+  }
 }
 
 /**
  * "get on": a small see-through, click-through window with the pet follows the cursor
  * around the screen. It hops over from the bar (`from`, a screen point) first.
  */
-function startRide(pet, from) {
+function startRide(pet, from, restarts = 0, home = null) {
+  if (ride && (ride.phase === "leaving" || ride.phase === "fly-back")) finishRide(); // "get on" again right after "get off"
   if (ride) {
+    ride.pet = pet;
+    ride.name = pet.name || ride.name;
     ride.win.webContents.send("rider:pet", pet);
+    buildTrayMenu();
     return true;
   }
   const start = from || cursorPoint();
@@ -407,25 +428,40 @@ function startRide(pet, from) {
   const bar = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && from ? mainWindow.getPosition() : null;
   ride = {
     win,
+    pet,
+    restarts,
     name: pet.name || "your pet",
     phase: "climb",
     startedAt: 0,
     from: start,
-    dock: bar ? { x: from.x - bar[0], y: from.y - bar[1] } : null, // where to fly back to, on the bar
+    dock: bar ? { x: from.x - bar[0], y: from.y - bar[1] } : home, // where to fly back to, on the bar
     trail: [],
     timer: null,
+    placed: null,
+    stuck: 0,
+    lastTop: 0,
+    // While riding, the system mustn't put Nova to sleep in the background (on a Mac,
+    // App Nap would slow the window down until the pet stops following the cursor).
+    blocker: powerSaveBlocker.start("prevent-app-suspension"),
   };
   win.once("ready-to-show", () => {
     if (!ride || ride.win !== win) return;
     win.showInactive();
     ride.startedAt = Date.now();
-    ride.timer = setInterval(rideTick, 16);
+    ride.timer = setInterval(rideTick, 8); // well over the screen's frame rate, so the pet keeps up
   });
-  win.on("closed", () => {
-    if (ride?.win === win) finishRide();
-  });
-  win.webContents.on("render-process-gone", () => finishRide());
-  win.loadURL(`${new URL("rider.html", serverUrl)}#${encodeURIComponent(JSON.stringify(pet))}`).catch(() => finishRide());
+  // Only "get off" ends a ride. If the window goes away by itself, put the pet right back
+  // on the cursor (giving up only if that keeps failing).
+  const lost = () => {
+    if (ride?.win !== win) return;
+    if (ride.phase === "leaving" || ride.phase === "fly-back" || quitting) return finishRide();
+    const { pet: again, restarts: tries, dock } = ride;
+    finishRide({ restarting: tries < 5 });
+    if (tries < 5) setTimeout(() => !ride && !quitting && startRide(again, null, tries + 1, dock), 300);
+  };
+  win.on("closed", lost);
+  win.webContents.on("render-process-gone", lost);
+  win.loadURL(`${new URL("rider.html", serverUrl)}#${encodeURIComponent(JSON.stringify(pet))}`).catch(lost);
   buildTrayMenu();
   return true;
 }
@@ -453,8 +489,22 @@ function rideTick() {
   while (ride.trail.length > 2 && now - ride.trail[0].t > 100) ride.trail.shift();
   const first = ride.trail[0];
   const dt = Math.max(0.016, (now - first.t) / 1000);
-  placeRider(point);
-  ride.win.webContents.send("rider:motion", { vx: (point.x - first.x) / dt, vy: (point.y - first.y) / dt });
+  const vx = (point.x - first.x) / dt;
+  const vy = (point.y - first.y) / dt;
+  // A window always shows up a frame or so after the cursor has moved; aim a little
+  // ahead on fast moves so the pet stays on the cursor instead of trailing behind it.
+  const lead = (v) => Math.max(-24, Math.min(24, v * 0.012));
+  placeRider({ x: point.x + lead(vx), y: point.y + lead(vy) });
+  if (now - (ride.lastSent || 0) >= 15) {
+    ride.lastSent = now;
+    ride.win.webContents.send("rider:motion", { vx, vy });
+  }
+  // Stay above every other window, even ones that come to the front later.
+  if (now - ride.lastTop > 1000) {
+    ride.lastTop = now;
+    ride.win.setAlwaysOnTop(true, "screen-saver");
+    ride.win.moveTop();
+  }
 }
 
 /** "get off": the pet says goodbye and flies back to the bar (or hops off if the bar is away). */
@@ -478,13 +528,14 @@ function stopRide() {
   setTimeout(() => ride === current && finishRide(), 2500); // never leave it hanging
 }
 
-function finishRide() {
+function finishRide({ restarting = false } = {}) {
   if (!ride) return;
-  const { win, timer } = ride;
+  const { win, timer, blocker } = ride;
   ride = null;
   clearInterval(timer);
+  if (powerSaveBlocker.isStarted(blocker)) powerSaveBlocker.stop(blocker);
   if (!win.isDestroyed()) win.destroy();
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("nova:ride-state", false);
+  if (!restarting && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("nova:ride-state", false);
   buildTrayMenu();
 }
 
@@ -869,5 +920,6 @@ app.whenReady().then(async () => {
     });
   }
 
-  if (process.env.NOVA_TEST) globalThis.novaTest = { snip, snipAndAnswer, showMain, getPopup: () => popup, getMain: () => mainWindow, getStage: () => stage, hasTray: () => !!tray, getRide: () => ride && { phase: ride.phase, bounds: ride.win.getBounds(), visible: ride.win.isVisible() }, setCursor: (point) => (fakeCursor = point), stopRide };
+  if (process.env.NOVA_TEST) globalThis.novaTest = { snip, snipAndAnswer, showMain, getPopup: () => popup, getMain: () => mainWindow, getStage: () => stage, hasTray: () => !!tray, getRide: () => ride && { phase: ride.phase, bounds: ride.win.getBounds(), visible: ride.win.isVisible(), restarts: ride.restarts, onTop: ride.win.isAlwaysOnTop(), blocking: powerSaveBlocker.isStarted(ride.blocker) },
+    crashRider: () => ride?.win.webContents.forcefullyCrashRenderer(), setCursor: (point) => (fakeCursor = point), stopRide };
 });
