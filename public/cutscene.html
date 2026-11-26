@@ -8,18 +8,20 @@
   <link rel="stylesheet" href="css/cutscene.css">
 </head>
 <body class="cs-page">
-  <!-- The desktop app opens this full screen to play the joke cutscene; the joke comes in the URL hash. -->
+  <!-- The desktop app opens this full screen to play a cutscene (the joke show or the fight); what to play comes in the URL hash. -->
   <script type="module">
     import { playJokeShow } from "./js/cutscene.js";
+    import { playFightScene } from "./js/fight.js";
 
-    let joke = {};
+    let show = {};
     try {
-      joke = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+      show = JSON.parse(decodeURIComponent(location.hash.slice(1)));
     } catch {
       // nothing to perform
     }
     const done = () => (window.novaStage ? window.novaStage.done() : window.close());
-    playJokeShow({ ...joke, root: document.body }).finally(done);
+    const play = show.scene === "fight" ? playFightScene : playJokeShow;
+    play({ ...show, root: document.body }).finally(done);
   </script>
 </body>
 </html>

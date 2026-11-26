@@ -151,6 +151,20 @@ function parseExact(input) {
   if ((m = String(input).trim().match(/^(?:(?:hey )?nova[,\s]+)?(?:rename (?:my |the )?pet(?: to)?|call yourself|your name is now|i'?ll call you|name (?:my pet|the pet|you))\s+(.+?)[.!]*$/i))) {
     return { name: "pet_name", args: { name: m[1].trim() } };
   }
+  // ----- the fight scene: "fight scene", "epic battle", "fight a dragon", "battle against the shark"
+  const fight = "(?:fight|battle|duel|showdown|brawl)";
+  const foe = `(?:a |an |the |some )?(?:evil |angry |mean |wild |giant |big )?${petWord}s?`;
+  if (
+    (m = s.match(
+      new RegExp(
+        `^(?:start |play |show(?: me)? |do |have |let'?s (?:have |do |see )?|i want(?: to see)? )?(?:a |an |the )?(?:epic |pet |big |boss |final )*${fight}(?: scene| time| mode)?(?: (?:with|against|vs|versus) ${foe})?$` +
+          `|^(?:fight|battle|duel) ${foe}$|^${petWord}s? (?:fight|battle)(?: scene)?$`,
+      ),
+    ))
+  ) {
+    const word = m.slice(1).find(Boolean);
+    return { name: "fight", args: { foe: word ? PET_WORDS[word] : "" } };
+  }
   if (/^(clear|clear (the )?chat|new chat|start over|reset)$/.test(s)) return { name: "clear" };
   if (/\b(copy|grab|extract|get|read) (the |all the )?text (from|on|off) (my |the |this )?(screen|window|page|image)\b|^(copy|extract) text$/.test(s)) {
     return { name: "answer_screen", args: { mode: "text" } };
@@ -339,6 +353,7 @@ const VOCAB = new Set([
   number note notes list shopping remember forget password generate stopwatch pomodoro focus start open search google youtube define
   meaning translate explain answer solve screen screenshot copy clipboard convert calculate time date today tomorrow help clear dark
   light mode theme pet change switch become rename what weather miles kilometers meters centimeters feet inches pounds ounces grams
+  fight battle scene duel epic
   kilograms celsius fahrenheit gallons liters dollars euros`.split(/\s+/),
   ...GENRE_WORDS,
   ..."cat dog bunny rabbit fox frog penguin panda owl hamster duck axolotl dragon unicorn pig koala turtle octopus raccoon bear hedgehog capybara sheep shark lion".split(" "),
@@ -412,7 +427,7 @@ export function parseCommand(input, { isWord } = {}) {
 /** Commands that run instantly in the browser even when the AI is available. */
 export function isInstant(command) {
   if (!command) return false;
-  const instant = ["music_control", "help", "clear", "theme", "cancel_timers", "list_timers", "copy_last", "stopwatch", "focus", "password", "convert", "pet", "pet_picker", "pet_name"];
+  const instant = ["music_control", "help", "clear", "theme", "cancel_timers", "list_timers", "copy_last", "stopwatch", "focus", "password", "convert", "pet", "pet_picker", "pet_name", "fight"];
   if (instant.includes(command.name)) return true;
   return command.name === "music_play" && command.args.query === "";
 }

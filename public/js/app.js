@@ -12,6 +12,7 @@ import { Conversation, NoKeyError } from "./ai.js";
 import { PetBuddy, createPetPicker, PETS } from "./pets.js";
 import { attachAutocorrect, loadCorrector } from "./autocorrect.js";
 import { playJokeShow } from "./cutscene.js";
+import { playFightScene, chooseFoe, foeName } from "./fight.js";
 
 applyIcons();
 
@@ -583,29 +584,24 @@ timers.addEventListener("done", (e) => {
   voice.speak(`Time's up: ${e.detail.label}`);
 });
 
-// ---------------------------------------------------------------- jokes on stage
+// ---------------------------------------------------------------- cutscenes
 
 let showQueue = Promise.resolve();
 /**
- * The joke cutscene: the pet tells the joke on stage, the crowd laughs, mic drop.
- * Full screen in the desktop app, over the page in the browser. One show at a time.
+ * Plays a cutscene starring the pet ("joke": stand-up with a mic drop; "fight": an epic
+ * battle). Full screen in the desktop app, over the page in the browser. One at a time.
  */
-function performJoke({ setup, punchline }) {
+function playScene(scene) {
   const run = showQueue.then(async () => {
-    const show = {
-      kind: pet.kind,
-      name: pet.name,
-      setup,
-      punchline,
-      speak: state.speak || (state.lastSource === "voice" && state.speakWhenSpoken),
-    };
-    state.performedJoke = true;
+    const show = { ...scene, kind: pet.kind, name: pet.name, speak: state.speak || (state.lastSource === "voice" && state.speakWhenSpoken) };
+    state.performedScene = true;
     const ducked = player.status === "playing";
     if (ducked) player.duck(true);
     voice.stopSpeaking();
     pet.setState("talking");
     try {
-      if (desktop?.joke) await desktop.joke(show);
+      if (desktop?.cutscene) await desktop.cutscene(show);
+      else if (show.scene === "fight") await playFightScene(show);
       else await playJokeShow(show);
     } finally {
       if (ducked) player.duck(false);
@@ -614,6 +610,16 @@ function performJoke({ setup, punchline }) {
   });
   showQueue = run.catch(() => {});
   return run;
+}
+
+const performJoke = ({ setup, punchline }) => playScene({ scene: "joke", setup, punchline });
+
+/** The fight scene against `requested` (an animal) or a random pet. Resolves with who it was. */
+async function performFight(requested) {
+  const foe = chooseFoe(pet.kind, requested);
+  const rival = foeName(pet.kind, pet.name, foe);
+  await playScene({ scene: "fight", foe, foeName: rival });
+  return { foe, foeName: rival, animal: foe === pet.kind ? "" : PETS[foe].animal };
 }
 
 // ---------------------------------------------------------------- tools
@@ -629,6 +635,7 @@ const toolbox = createToolbox({
   getLastAnswer: () => state.lastAnswer,
   openPetPicker: () => togglePetPicker(true),
   performJoke,
+  performFight,
 });
 
 // ---------------------------------------------------------------- sending
@@ -689,7 +696,7 @@ async function runAI(text, image, source, mirror = null) {
   state.abort = abort;
   setBusy(true);
   pet.setState("thinking");
-  state.performedJoke = false;
+  state.performedScene = false;
   const sources = [];
   try {
     const result = await conversation.send(content, {
@@ -727,7 +734,7 @@ async function runAI(text, image, source, mirror = null) {
     pet.setState("happy", 1400);
     mirror?.({ text: msg.text, done: true });
     if (!result.refused) state.lastAnswer = msg.text;
-    if (!state.performedJoke) speakIfWanted(msg.text, source); // a joke was already performed out loud
+    if (!state.performedScene) speakIfWanted(msg.text, source); // a cutscene already did the talking
     if (desktop && !windowVisible && source !== "hotkey") notifyAnswer(msg.text);
     return result.refused ? null : msg.text;
   } catch (err) {
@@ -810,7 +817,7 @@ async function runOffline(text, image, source, command = parseCommand(text, pars
   if (pet.state !== "happy") pet.setState("talking", 900);
   const said = msg.text;
   if (said && command?.name !== "copy_last") state.lastAnswer = said;
-  if (command?.name !== "joke") speakIfWanted(said, source); // the joke was already performed out loud
+  if (!["joke", "fight"].includes(command?.name)) speakIfWanted(said, source); // the cutscene already did the talking
 }
 
 async function submit(rawText, source = "text") {

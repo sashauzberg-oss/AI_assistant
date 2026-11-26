@@ -3,6 +3,7 @@
 // and sound are made in code, so it works offline. It runs over the page in the
 // browser, and in its own full-screen window in the desktop app (public/cutscene.html).
 import { PETS, drawPet } from "./pets.js";
+import { h, clamp, rand, pick, sleep, fontsReady, speakLine, createAudio, silentSound, createTimeline, mountStage } from "./stage-kit.js";
 
 // How high each pet's voice is: the pitch of the typing blips (Hz), and of the spoken voice.
 const VOICE = {
@@ -15,10 +16,6 @@ const INTROS = ["Ahem... is this thing on?", "Hello, hello! Great crowd tonight!
 const LAUGHS = ["HA!", "HAHA!", "LOL", "HEHE", "HA HA HA", "HAHA", "LOL!", "HA!"];
 const POP_COLORS = ["#ffd23f", "#ff7ab6", "#7cf4ff", "#ffffff", "#a6ff7a"];
 
-const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
-const rand = (lo, hi) => lo + Math.random() * (hi - lo);
-const pick = (list) => list[Math.floor(Math.random() * list.length)];
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Where a pet's eyes and mouth are (from its blink and talk pixels), and its fur colour. */
 export function petGeometry(kind) {
@@ -151,132 +148,13 @@ function brickTile() {
 // ---------------------------------------------------------------- sound (Web Audio, made live)
 
 function createSound() {
-  let ctx;
-  try {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-  } catch {
-    ctx = null;
-  }
-  const quiet = () => {};
-  if (!ctx) return new Proxy({}, { get: () => quiet });
-  ctx.resume?.().catch(() => {});
-
-  const master = ctx.createGain();
-  master.gain.value = 0.9;
-  master.connect(ctx.destination);
+  const audio = createAudio();
+  if (!audio) return silentSound();
+  const { ctx, master, crowdBus, at, noise, filter, envelope, tone, hiss, warble, applause } = audio;
   const soft = ctx.createBiquadFilter(); // takes the edge off the chiptune blips
   soft.type = "lowpass";
   soft.frequency.value = 2800;
   soft.connect(master);
-
-  // A little room reverb, so the crowd sounds like it's in a club.
-  const room = ctx.createConvolver();
-  const length = Math.floor(ctx.sampleRate * 1.3);
-  const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
-  for (let ch = 0; ch < 2; ch++) {
-    const data = impulse.getChannelData(ch);
-    for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** 3;
-  }
-  room.buffer = impulse;
-  const wet = ctx.createGain();
-  wet.gain.value = 0.3;
-  room.connect(wet).connect(master);
-  const crowdBus = ctx.createGain();
-  crowdBus.connect(master);
-  crowdBus.connect(room);
-
-  const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-  const noiseData = noiseBuffer.getChannelData(0);
-  for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
-
-  const at = (offset = 0) => ctx.currentTime + 0.01 + offset;
-  const noise = () => {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer;
-    src.loop = true;
-    return src;
-  };
-  const filter = (type, freq, q = 1) => {
-    const f = ctx.createBiquadFilter();
-    f.type = type;
-    f.frequency.value = freq;
-    f.Q.value = q;
-    return f;
-  };
-  const envelope = (param, t, peak, attack, dur) => {
-    param.setValueAtTime(0.0001, t);
-    param.exponentialRampToValueAtTime(peak, t + attack);
-    param.exponentialRampToValueAtTime(0.0001, t + dur);
-  };
-
-  function tone({ type = "sine", from, to = from, t = at(), dur = 0.2, peak = 0.3, attack = 0.005, out = master }) {
-    const osc = ctx.createOscillator();
-    osc.type = type;
-    osc.frequency.setValueAtTime(from, t);
-    if (to !== from) osc.frequency.exponentialRampToValueAtTime(to, t + dur);
-    const gain = ctx.createGain();
-    envelope(gain.gain, t, peak, attack, dur);
-    osc.connect(gain).connect(out);
-    osc.start(t);
-    osc.stop(t + dur + 0.05);
-  }
-
-  function hiss({ t = at(), dur = 0.2, peak = 0.2, type = "bandpass", freq = 1000, to, q = 1, attack = 0.005, out = master }) {
-    const src = noise();
-    const f = filter(type, freq, q);
-    if (to) {
-      f.frequency.setValueAtTime(freq, t);
-      f.frequency.exponentialRampToValueAtTime(to, t + dur);
-    }
-    const gain = ctx.createGain();
-    envelope(gain.gain, t, peak, attack, dur);
-    src.connect(f).connect(gain).connect(out);
-    src.start(t, Math.random());
-    src.stop(t + dur + 0.05);
-  }
-
-  function warble({ t, from, peak, dur, rise = 1.07, vibrato = 8, depth = 18 }) {
-    const osc = ctx.createOscillator();
-    osc.frequency.setValueAtTime(from, t);
-    osc.frequency.exponentialRampToValueAtTime(from * rise, t + dur);
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = vibrato;
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = depth;
-    lfo.connect(lfoGain).connect(osc.frequency);
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(peak, t + dur * 0.45);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(gain).connect(master);
-    for (const node of [osc, lfo]) {
-      node.start(t);
-      node.stop(t + dur + 0.05);
-    }
-  }
-
-  /** Clapping and table slaps: a burst of tiny noise clicks, rendered into a buffer. */
-  function applause(dur = 2, level = 0.25, offset = 0) {
-    const rate = ctx.sampleRate;
-    const buffer = ctx.createBuffer(1, Math.floor(rate * dur), rate);
-    const data = buffer.getChannelData(0);
-    const claps = Math.floor(dur * 75);
-    for (let k = 0; k < claps; k++) {
-      const pos = Math.random();
-      const fade = Math.min(1, pos / 0.12) * Math.min(1, (1 - pos) / 0.35);
-      if (Math.random() > fade) continue;
-      const start = Math.floor(pos * (data.length - 900));
-      const len = 250 + Math.floor(Math.random() * 500);
-      const amp = rand(0.3, 1);
-      for (let i = 0; i < len; i++) data[start + i] += (Math.random() * 2 - 1) * amp * Math.exp((-6 * i) / len);
-    }
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const gain = ctx.createGain();
-    gain.gain.value = level;
-    src.connect(filter("highpass", 700)).connect(gain).connect(crowdBus);
-    src.start(at(offset));
-  }
 
   /** A crowd laughing: a few dozen "ha-ha" voices (buzz through vowel filters, with breath). */
   function laugh(dur = 4) {
@@ -401,43 +279,9 @@ function createSound() {
       osc.start(t);
       osc.stop(t + 0.65);
     },
-    hush() {
-      master.gain.setTargetAtTime(0, ctx.currentTime, 0.03);
-    },
-    close() {
-      ctx.close().catch(() => {});
-    },
+    hush: audio.hush,
+    close: audio.close,
   };
-}
-
-/** Say a line with the computer's voice (when the user has spoken answers turned on). */
-function speakLine(text, pitch) {
-  return new Promise((resolve) => {
-    try {
-      const line = text.replace(/\*[^*]*\*/g, " ").trim();
-      if (!window.speechSynthesis || !line) return resolve();
-      const utterance = new SpeechSynthesisUtterance(line);
-      utterance.pitch = pitch;
-      utterance.rate = 1.02;
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
-      speechSynthesis.speak(utterance);
-    } catch {
-      resolve();
-    }
-  });
-}
-
-function fontsReady() {
-  if (!document.fonts?.load) return Promise.resolve();
-  return Promise.all([document.fonts.load('700 24px "Pixelify Sans"'), document.fonts.load('16px "Press Start 2P"')]).catch(() => {});
-}
-
-function h(tag, className, children = []) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  node.append(...children);
-  return node;
 }
 
 // ---------------------------------------------------------------- the show
@@ -551,45 +395,11 @@ export async function playJokeShow({ kind = "cat", name = "", setup = "", punchl
   }
 
   // ----- timing that the user can cut short
-  const SKIP = Symbol("skip");
-  const pending = new Set();
-  const timers = new Set();
-  let stopped = false;
-  let skipped = false;
-  const wait = (ms) =>
-    new Promise((resolve, reject) => {
-      if (stopped) return reject(SKIP);
-      const entry = { reject };
-      entry.timer = setTimeout(() => {
-        pending.delete(entry);
-        resolve();
-      }, ms);
-      pending.add(entry);
-    });
-  const later = (fn, ms) => {
-    const timer = setTimeout(() => {
-      timers.delete(timer);
-      if (!stopped) fn();
-    }, ms);
-    timers.add(timer);
-  };
+  const timeline = createTimeline();
+  const { SKIP, wait, later } = timeline;
   const sfx = createSound();
   const skip = () => {
-    if (stopped) return;
-    stopped = true;
-    skipped = true;
-    sfx.hush();
-    for (const entry of pending) {
-      clearTimeout(entry.timer);
-      entry.reject(SKIP);
-    }
-    pending.clear();
-  };
-  const onKey = (e) => {
-    if (!["Escape", "Enter", " "].includes(e.key)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    skip();
+    if (timeline.skip()) sfx.hush();
   };
 
   // ----- the pet's face: talking, laughing and blinking
@@ -764,25 +574,19 @@ export async function playJokeShow({ kind = "cat", name = "", setup = "", punchl
     await wait(1100);
   }
 
-  const previousFocus = document.activeElement;
-  stage.addEventListener("click", skip);
-  window.addEventListener("keydown", onKey, true);
   window.addEventListener("resize", layout);
-  root.append(stage);
+  const unmount = mountStage(root, stage, skip);
   layout();
-  skipButton.focus({ preventScroll: true });
-  stage.getBoundingClientRect(); // start from the hidden state so the fade-in runs
 
   try {
     await perform();
   } catch (err) {
     if (err !== SKIP) console.error(err);
   } finally {
-    stopped = true;
+    timeline.stop();
     clearInterval(loop);
-    for (const timer of timers) clearTimeout(timer);
-    window.removeEventListener("keydown", onKey, true);
     window.removeEventListener("resize", layout);
+    unmount();
     if (speak) {
       try {
         speechSynthesis.cancel();
@@ -791,10 +595,9 @@ export async function playJokeShow({ kind = "cat", name = "", setup = "", punchl
       }
     }
     stage.classList.add("out");
-    await sleep(skipped ? 220 : 340);
+    await sleep(timeline.skipped ? 220 : 340);
     stage.remove();
     sfx.close();
-    if (previousFocus?.isConnected) previousFocus.focus?.({ preventScroll: true });
   }
-  return { skipped };
+  return { skipped: timeline.skipped };
 }

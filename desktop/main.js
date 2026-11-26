@@ -288,10 +288,10 @@ function selectRegion(display, image, mode = "answer") {
 }
 
 /**
- * The joke cutscene: a full-screen window on the display Nova is on, where the pet tells
- * the joke on stage. Resolves when the show is over (or skipped).
+ * A cutscene (the joke show or the fight scene) in a full-screen window on the display
+ * Nova is on. Resolves when it's over (or skipped).
  */
-function performJoke(joke) {
+function playCutscene(show) {
   if (stage) return Promise.resolve(false);
   return new Promise((resolve) => {
     const anchor = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow.getBounds() : null;
@@ -348,7 +348,7 @@ function performJoke(joke) {
       win.setBounds(display.bounds); // some window managers nudge it on show
       win.focus();
     });
-    win.loadURL(`${new URL("cutscene.html", serverUrl)}#${encodeURIComponent(JSON.stringify(joke))}`).catch(finish);
+    win.loadURL(`${new URL("cutscene.html", serverUrl)}#${encodeURIComponent(JSON.stringify(show))}`).catch(finish);
   });
 }
 
@@ -566,18 +566,19 @@ function setupIpc() {
     await clipboard.writeText(text);
     return true;
   });
-  ipcMain.handle("nova:joke", (event, joke) => {
-    if (!fromMain(event) || !joke || typeof joke !== "object") return false;
+  ipcMain.handle("nova:cutscene", (event, scene) => {
+    if (!fromMain(event) || !scene || typeof scene !== "object") return false;
     const text = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
-    const show = {
-      kind: text(joke.kind, 20),
-      name: text(joke.name, 24),
-      setup: text(joke.setup, 400),
-      punchline: text(joke.punchline, 400),
-      speak: joke.speak === true,
-    };
-    if (!show.setup && !show.punchline) return false;
-    return performJoke(show);
+    const show = { scene: scene.scene === "fight" ? "fight" : "joke", kind: text(scene.kind, 20), name: text(scene.name, 24), speak: scene.speak === true };
+    if (show.scene === "joke") {
+      show.setup = text(scene.setup, 400);
+      show.punchline = text(scene.punchline, 400);
+      if (!show.setup && !show.punchline) return false;
+    } else {
+      show.foe = text(scene.foe, 20);
+      show.foeName = text(scene.foeName, 30);
+    }
+    return playCutscene(show);
   });
   ipcMain.handle("nova:open-app", (event, name) => {
     if (!fromMain(event) || typeof name !== "string") return { ok: false, error: "Invalid app name." };

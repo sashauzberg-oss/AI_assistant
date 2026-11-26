@@ -31,7 +31,7 @@ const HELP = `Here's what I can do. Just type or say it:
 - **Notes**: “note buy milk”, “show my notes”, “delete note 2”
 - **Web & apps**: “open YouTube”, “search best pizza near me”, “cat videos on YouTube”, and in the desktop app “open Spotify” or “open calculator”
 - **Your pet**: click the pet next to the typing bar, or say “switch to a dog”, “be a penguin”, “call yourself Pixel”
-- **Fun**: “tell me a joke”, “flip a coin”, “roll a dice”
+- **Fun**: “tell me a joke”, “fight scene” (or “fight a dragon”), “flip a coin”, “roll a dice”
 - **Hands-free** (browser): turn on the 📡 button and say “Nova, …”`;
 
 // ---------- input validation (tool inputs come from the model; check them before acting) ----------
@@ -84,6 +84,7 @@ const SPECS = {
   generate_password: { length: { type: "integer", min: 8, max: 128 }, symbols: { type: "boolean" } },
   open_app: { name: { type: "string", required: true } },
   tell_joke: { setup: { type: "string", required: true }, punchline: { type: "string", required: true } },
+  fight_scene: { opponent: { type: "string" } },
 };
 
 // ---------- cards ----------
@@ -147,7 +148,7 @@ function linkCard(url, title, sub) {
 
 // ---------- the toolbox ----------
 
-export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, pet, getLastAnswer = () => "", openPetPicker = () => {}, performJoke = async () => {} }) {
+export function createToolbox({ player, timers, voice, captureScreen, setTheme, units, pet, getLastAnswer = () => "", openPetPicker = () => {}, performJoke = async () => {}, performFight = async () => null }) {
   const desktop = window.novaDesktop || null;
   const notes = {
     all: () => storage.get("notes", []),
@@ -330,6 +331,21 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
     ui.setText(jokeText(joke));
   }
 
+  /** The fight scene; afterwards the result goes in the chat. */
+  async function fightScene(foe, ui) {
+    let result = null;
+    try {
+      result = await performFight(foe);
+    } catch {
+      // the show couldn't run
+    }
+    if (!result) return "The fight couldn't start. Try again in a moment.";
+    const rival = `**${result.foeName}**${result.animal ? ` the ${result.animal}` : ""}`;
+    const text = `⚔️ **${pet?.name || "Your pet"}** beat ${rival} with a super move! 🏆`;
+    ui.setText(text);
+    return { text, result };
+  }
+
   function nextJoke() {
     const recent = storage.get("recentJokes", []);
     const joke = randomJoke(recent);
@@ -481,6 +497,12 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
       if (!joke.setup || !joke.punchline) return { content: "Give both a setup and a punchline.", isError: true };
       await tellJoke(joke, ui);
       return { content: "Done: the joke was performed on stage and is shown in the chat. Reply with only a short sign-off; don't repeat the joke." };
+    },
+
+    async fight_scene({ opponent }, ui) {
+      const outcome = await fightScene((opponent || "").trim().toLowerCase(), ui);
+      if (typeof outcome === "string") return { content: outcome, isError: true };
+      return { content: `Done: the fight scene played and ${pet?.name || "the pet"} beat ${outcome.result.foeName}. The result is shown in the chat. Reply with only a short victory line; don't describe the fight.` };
     },
   };
 
@@ -651,6 +673,10 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
       case "joke":
         await tellJoke(nextJoke(), ui);
         return "";
+      case "fight": {
+        const outcome = await fightScene(a.foe, ui);
+        return typeof outcome === "string" ? outcome : "";
+      }
       case "coin":
         return `🪙 **${Math.random() < 0.5 ? "Heads" : "Tails"}**!`;
       case "dice": {
