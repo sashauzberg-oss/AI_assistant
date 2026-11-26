@@ -152,6 +152,8 @@ Put these in `.env` (see `.env.example`):
 
 The desktop app always listens on `127.0.0.1:47823`, and reads `ANTHROPIC_MODEL` and `AI_EFFORT` from the `.env` in its data folder.
 
+**Your API key in the app**: paste it in Settings (the sliders icon) and click **Save key**; Nova checks it with Anthropic first. **Remove key** (click it twice) deletes the saved key and puts Nova back in offline mode. If a saved key stops working (deleted or turned off at platform.claude.com), Nova says so and answers with its offline skills until you paste a new one or remove it.
+
 ## Privacy
 
 - Your API key stays on your computer, in `.env`. It's never sent to the browser.

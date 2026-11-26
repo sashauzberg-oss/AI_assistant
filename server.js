@@ -57,6 +57,15 @@ export async function startServer({
     fs.writeFileSync(envFile, text, { mode: 0o600 });
   };
 
+  const removeKeyFromEnvFile = () => {
+    try {
+      const text = fs.readFileSync(envFile, "utf8");
+      fs.writeFileSync(envFile, text.replace(/^ANTHROPIC_API_KEY=.*(\r?\n|$)/gm, ""), { mode: 0o600 });
+    } catch {
+      // no file: nothing saved
+    }
+  };
+
   const app = express();
   app.disable("x-powered-by");
 
@@ -104,6 +113,18 @@ export async function startServer({
     process.env.ANTHROPIC_API_KEY = key;
     client = null;
     res.json({ ai: true });
+  });
+
+  // "Remove key" in Settings: forget the saved key, back to offline mode.
+  app.delete("/api/config", (req, res) => {
+    if (!isLoopback(req)) {
+      res.status(403).json({ error: "The API key can only be changed from this computer." });
+      return;
+    }
+    removeKeyFromEnvFile();
+    delete process.env.ANTHROPIC_API_KEY;
+    client = null;
+    res.json({ ai: !!getClient() });
   });
 
   app.post("/api/chat", async (req, res) => {

@@ -8,7 +8,7 @@ import { ScreenSnipper, imageFromFile } from "./screen.js";
 import { Voice } from "./voice.js";
 import { Timers, chime } from "./timers.js";
 import { createToolbox } from "./tools.js";
-import { Conversation, NoKeyError } from "./ai.js";
+import { Conversation, NoKeyError, BadKeyError } from "./ai.js";
 import { PetBuddy, createPetPicker, PETS } from "./pets.js";
 import { attachAutocorrect, loadCorrector } from "./autocorrect.js";
 import { playJokeShow } from "./cutscene.js";
@@ -275,14 +275,54 @@ function renderStatus() {
   ui.status.className = `pill ${state.ai ? "ok" : "off"}`;
   ui.status.title = state.ai ? "Connected to Claude" : "Add an API key in Settings to unlock the AI";
   $("#settings-ai-status").textContent = state.ai
-    ? "Nova is connected to Claude. Paste a new key to replace the current one."
-    : "No API key yet. Nova works offline for built-in commands; add a key to answer anything and read your screen.";
+    ? "Nova is connected to Claude. Paste a new key to replace the current one, or remove it."
+    : state.keySaved
+      ? "Your saved key isn't working (it may have been deleted or turned off). Paste a new key, or remove it."
+      : "No API key yet. Nova works offline for built-in commands; add a key to answer anything and read your screen.";
+  resetRemoveButton();
 }
+
+// "Remove key": two clicks, so it can't happen by accident.
+const removeKeyButton = $("#settings-remove-key");
+let removeArmed = null;
+function resetRemoveButton() {
+  clearTimeout(removeArmed);
+  removeArmed = null;
+  removeKeyButton.textContent = "Remove key";
+  removeKeyButton.classList.remove("danger");
+  removeKeyButton.hidden = !(state.keySaved || state.ai) || !state.canConfigure;
+}
+removeKeyButton.addEventListener("click", async () => {
+  const msg = $("#settings-key-msg");
+  if (!removeArmed) {
+    removeKeyButton.textContent = "Sure? Click again";
+    removeKeyButton.classList.add("danger");
+    removeArmed = setTimeout(resetRemoveButton, 4000);
+    return;
+  }
+  resetRemoveButton();
+  try {
+    const res = await fetch("/api/config", { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't remove the key.");
+    msg.className = "small msg-ok";
+    msg.textContent = data.ai
+      ? "Removed the saved key, but this computer gives Nova another one, so the AI is still on."
+      : "Key removed. Nova is in offline mode now; paste a key any time to turn the AI back on.";
+    state.keySaved = data.ai;
+    await refreshStatus();
+    if (ui.chat.querySelector(".welcome")) showWelcome();
+  } catch (err) {
+    msg.className = "small msg-err";
+    msg.textContent = err.message;
+  }
+});
 
 async function refreshStatus() {
   try {
     const s = await getJson("/api/status");
     state.ai = s.ai;
+    state.keySaved = s.ai; // a key is saved (even if it turns out not to work)
     state.canConfigure = s.canConfigure;
   } catch {
     state.ai = false;
@@ -748,7 +788,7 @@ async function runAI(text, image, source, mirror = null) {
     } else if (err instanceof NoKeyError) {
       state.ai = false;
       renderStatus();
-      msg.error("The AI isn't set up yet, so I answered with my offline skills.");
+      msg.error(err instanceof BadKeyError ? err.message : "The AI isn't set up yet, so I answered with my offline skills.");
       await runOffline(text, image, source);
     } else {
       msg.error(err.message);

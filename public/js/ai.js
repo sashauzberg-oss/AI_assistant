@@ -5,6 +5,8 @@ import { storage } from "./util.js";
 import { PETS } from "./pets.js";
 
 export class NoKeyError extends Error {}
+/** The saved key was rejected (deleted or turned off at Anthropic). */
+export class BadKeyError extends NoKeyError {}
 
 function clientContext() {
   return {
@@ -54,7 +56,10 @@ async function streamTurn(messages, { onEvent, signal }) {
         .join("\n");
       if (!data) continue;
       const event = JSON.parse(data);
-      if (event.type === "error") throw new Error(event.error?.message || "The AI request failed.");
+      if (event.type === "error") {
+        const message = event.error?.message || "The AI request failed.";
+        throw event.error?.code === "auth" ? new BadKeyError(message) : new Error(message);
+      }
       if (event.type === "done") final = event.message;
       else onEvent(event);
     }
