@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startServer } from "../server.js";
 import { openApp } from "./apps.js";
+import { closeBrowserTabs, BROWSERS } from "./tabs.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const asset = (name) => path.join(here, "assets", name);
@@ -788,6 +789,11 @@ function setupIpc() {
   ipcMain.handle("nova:riding", (event) => fromMain(event) && !!ride);
   ipcMain.on("rider:left", (event) => {
     if (ride && !ride.win.isDestroyed() && event.sender === ride.win.webContents && ride.phase === "leaving") finishRide();
+  });
+  ipcMain.handle("nova:close-tabs", (event, opts) => {
+    if (!fromMain(event)) return { ok: false, error: "denied" };
+    const browser = typeof opts?.browser === "string" && BROWSERS[opts.browser] ? opts.browser : "";
+    return closeBrowserTabs({ browser });
   });
   ipcMain.handle("nova:open-app", (event, name) => {
     if (!fromMain(event) || typeof name !== "string") return { ok: false, error: "Invalid app name." };

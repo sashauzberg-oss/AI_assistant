@@ -4,7 +4,7 @@ import { el, getJson, isHttpUrl, storage, describeDuration, formatClock } from "
 import { icon } from "./icons.js";
 import { calculate, formatNumber } from "./calc.js";
 import { secondsUntil } from "./commands.js";
-import { generatePassword } from "./extras.js";
+import { generatePassword, describeClosedTabs } from "./extras.js";
 import { imageFromFile } from "./screen.js";
 import { randomJoke, jokeText } from "./jokes.js";
 
@@ -31,6 +31,7 @@ const HELP = `Here's what I can do. Just type or say it:
 - **Notes**: “note buy milk”, “show my notes”, “delete note 2”
 - **Web & apps**: “open YouTube”, “search best pizza near me”, “cat videos on YouTube”, and in the desktop app “open Spotify” or “open calculator”
 - **Your pet**: click the pet next to the typing bar, or say “switch to a dog”, “be a penguin”, “call yourself Pixel”
+- **Tabs** (desktop app on Windows): “close all my tabs”, “close all my chrome tabs”
 - **Fun**: “tell me a joke”, “fight scene” (or “fight a dragon”), “get on” (your pet rides your cursor; “get off” to stop), “flip a coin”, “roll a dice”
 - **Hands-free** (browser): turn on the 📡 button and say “Nova, …”`;
 
@@ -362,6 +363,28 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
         "not-riding": `${name} is right here! Say **get on** and I'll hop onto your cursor.`,
       }[status] || "I couldn't get on the cursor this time."
     );
+  }
+
+  /** "close all my tabs" (desktop app). Asks first when the request wasn't typed exactly. */
+  async function closeTabs(browser, ui, { confirm = false } = {}) {
+    if (!desktop?.closeTabs) return "From a web page I can't close your other tabs (browsers don't allow that), but the Nova desktop app on Windows can.";
+    const go = async () => describeClosedTabs(await desktop.closeTabs({ browser }));
+    if (!confirm) return go();
+    const yes = el("button", { class: "card-action", type: "button", text: "Close them" });
+    const no = el("button", { class: "btn", type: "button", text: "Cancel" });
+    const node = el("div", { class: "card" }, [el("div", { class: "card-icon", text: "🗂️" }), el("div", { class: "card-main" }, [el("div", { class: "card-title", text: `Close all your ${browser ? `${browser} ` : "browser "}tabs?` })]), no, yes]);
+    yes.addEventListener("click", async () => {
+      yes.disabled = no.disabled = true;
+      node.querySelector(".card-title").textContent = "Closing…";
+      ui.setText(await go());
+      node.remove();
+    });
+    no.addEventListener("click", () => {
+      node.remove();
+      ui.setText("Okay, I left your tabs alone.");
+    });
+    ui.addCard(node);
+    return "Do you want me to close all your tabs? Click **Close them** to go ahead.";
   }
 
   function nextJoke() {
@@ -698,6 +721,9 @@ export function createToolbox({ player, timers, voice, captureScreen, setTheme, 
         return "";
       case "ride":
         return ride(a.on);
+      case "close_tabs":
+        // typed exactly: just do it (it can be undone); a guess or a voice command asks first
+        return closeTabs(a.browser, ui, { confirm: !!cmd.understood || cmd.source === "voice" });
       case "fight": {
         const outcome = await fightScene(a.foe, ui);
         return typeof outcome === "string" ? outcome : "";

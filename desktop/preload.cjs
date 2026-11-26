@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("novaDesktop", {
   openApp: (name) => ipcRenderer.invoke("nova:open-app", name),
   cutscene: (show) => ipcRenderer.invoke("nova:cutscene", show),
   ride: (opts) => ipcRenderer.invoke("nova:ride", opts),
+  closeTabs: (opts) => ipcRenderer.invoke("nova:close-tabs", opts),
   isRiding: () => ipcRenderer.invoke("nova:riding"),
   onRideState: (callback) => ipcRenderer.on("nova:ride-state", (_event, riding) => callback(riding)),
   readClipboard: () => ipcRenderer.invoke("nova:read-clipboard"),

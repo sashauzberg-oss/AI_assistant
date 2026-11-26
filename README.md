@@ -22,6 +22,7 @@ Nova is an AI assistant for your browser or desktop. Type or say what you want a
 | **tell me a joke**, **make me laugh**, **a joke about cats** | Your pet does stand-up: a full-screen comedy club cutscene with a mic drop |
 | **fight scene**, **epic battle**, **fight a dragon** | Your pet battles another pet in an epic full-screen pixel fight |
 | **get on**, **ride my cursor** / **get off** | Your pet climbs onto your mouse cursor and rides it around |
+| **close all my tabs**, **close all my chrome tabs** (Windows desktop app) | Closes your browser windows and all their tabs |
 | *anything else* | Answers it with Claude, searching the web when needed |
 
 **Your pixel pet answers everything.** A little pixel-art pet sits next to the typing bar and answers your questions in pixel speech bubbles. It blinks, talks while it answers, thinks while it waits, bobs along to music and dozes off when you're away. Click it to pick another animal (24 to choose from: cat, dog, bunny, fox, frog, penguin, panda, owl, hamster, duck, axolotl, dragon, unicorn, pig, koala, turtle, octopus, raccoon, bear, hedgehog, capybara, sheep, shark or lion) and give it a name, or just say “be a dragon” or “call yourself Pixel”.
@@ -31,6 +32,8 @@ Nova is an AI assistant for your browser or desktop. Type or say what you want a
 **Fight scene.** Say “fight scene” (or “epic battle”, “fight a dragon”, “battle against the shark”) for a ten-second pixel battle in the style of an old fighting game, at a sunset arena: a VS screen, health bars, a clash, a flying kick, a combo, the rival's energy ball, a comeback tackle, then your pet's super move (a meteor dive or a giant energy beam) sends the rival flying for a K.O. Your pet always wins, with confetti and a fanfare. Name an animal to pick the opponent, or pick your own pet's animal to fight its shadow twin. It has its own chiptune battle music, works offline, and costs nothing (no AI needed). Click or press Esc to skip.
 
 **Cursor rides.** Say “get on” (or “hop on”, “ride my cursor”) and your pet hops off the bar and sits on your mouse pointer. Move the mouse and it rides along, leaning into the turns, with speed lines when you go fast, and says things now and then: “Wheee!” and “Faster! Faster!” when you zoom around, “Whoa!” when you stop suddenly, “Great view up here!” when you rest, and it falls asleep (“Zzz…”) if you leave it long enough. In the desktop app it rides anywhere on your screen, over every app, and your clicks go straight through it; in the browser it rides around the page. Say “get off” (or click its empty spot next to the bar, or use the tray menu) and it flies back.
+
+**Close all my tabs.** In the Windows desktop app, “close all my tabs” closes every window of your web browsers (Chrome, Edge, Firefox, Brave, Opera, Vivaldi and Arc), so all their tabs close with it, just like clicking each window's X. Name a browser to close only its tabs (“close all my chrome tabs”). If Nova had to guess what you meant (a typo, or a spoken command), it asks first. Changed your mind? Open the browser and press **Ctrl+Shift+T** to bring them back. A web page can't close your other tabs, so this isn't in the browser version.
 
 **Auto-correct.** Typos are fixed as you type, like on a phone: “teh” becomes “the” when you press space, and “dont” becomes “don't”. A little chip shows what changed; click it or press Backspace right away to undo, and Nova won't change that word again. Names, links, ALL CAPS and your pet's name are left alone. Turn it off in Settings › Personal.
 
@@ -185,6 +188,7 @@ public/js/music.js   Music player; synth.js generates offline music
 public/js/screen.js  The snipping tool
 public/js/voice.js   Speech recognition, wake word and read-aloud
 desktop/main.js      Desktop app: the floating bar, tray, global hotkeys, native screen capture, answer bubble
+desktop/tabs.js      “close all my tabs” on Windows: asks each browser window to close
 desktop/apps.js      Opens installed apps by name (Start menu on Windows, `open -a` on Mac, .desktop files on Linux)
 desktop/ui/          The snip overlay and the answer bubble (the joke stage window loads public/cutscene.html)
 desktop/*.cjs        Bridges that give each desktop window only the functions it needs

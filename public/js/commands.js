@@ -151,6 +151,20 @@ function parseExact(input) {
   if ((m = String(input).trim().match(/^(?:(?:hey )?nova[,\s]+)?(?:rename (?:my |the )?pet(?: to)?|call yourself|your name is now|i'?ll call you|name (?:my pet|the pet|you))\s+(.+?)[.!]*$/i))) {
     return { name: "pet_name", args: { name: m[1].trim() } };
   }
+  // ----- "close all my tabs" (optionally one browser: "close all my chrome tabs", "close all tabs in edge")
+  const browser = "(chrome|google chrome|edge|microsoft edge|firefox|brave|arc|vivaldi|opera)";
+  if (
+    (m = s.match(
+      new RegExp(
+        `^(?:close|shut)(?: down)? (?:all |all of |every )?(?:my |the |your |of my )?(?:open )?(?:${browser} )?(?:browser )?tabs(?: (?:in|on|from) (?:my |the )?${browser}(?: browser)?)?$` +
+          `|^close every (?:${browser} )?tab$|^close (?:all |every )?(?:my |the )?browser tabs$`,
+      ),
+    ))
+  ) {
+    const word = m.slice(1).find(Boolean) || "";
+    return { name: "close_tabs", args: { browser: word.replace(/^(google|microsoft) /, "") } };
+  }
+
   // ----- riding the cursor: "get on", "ride my cursor", "get off"
   const pointer = "(?:my |the |your )?(?:cursor|mouse|pointer|arrow)";
   if (new RegExp(`^(?:get|hop|climb|jump|sit|ride)(?: back)? on(?:to)?(?: ${pointer})?$|^ride ${pointer}$|^(?:get|hop|climb|jump|sit) on(?:to)? ${pointer}$|^${pointer} ride$`).test(s)) {
@@ -362,7 +376,7 @@ const VOCAB = new Set([
   number note notes list shopping remember forget password generate stopwatch pomodoro focus start open search google youtube define
   meaning translate explain answer solve screen screenshot copy clipboard convert calculate time date today tomorrow help clear dark
   light mode theme pet change switch become rename what weather miles kilometers meters centimeters feet inches pounds ounces grams
-  fight battle scene duel epic cursor mouse pointer ride hop climb
+  fight battle scene duel epic cursor mouse pointer ride hop climb close tabs browser
   kilograms celsius fahrenheit gallons liters dollars euros`.split(/\s+/),
   ...GENRE_WORDS,
   ..."cat dog bunny rabbit fox frog penguin panda owl hamster duck axolotl dragon unicorn pig koala turtle octopus raccoon bear hedgehog capybara sheep shark lion".split(" "),
@@ -436,7 +450,7 @@ export function parseCommand(input, { isWord } = {}) {
 /** Commands that run instantly in the browser even when the AI is available. */
 export function isInstant(command) {
   if (!command) return false;
-  const instant = ["music_control", "help", "clear", "theme", "cancel_timers", "list_timers", "copy_last", "stopwatch", "focus", "password", "convert", "pet", "pet_picker", "pet_name", "fight", "ride"];
+  const instant = ["music_control", "help", "clear", "theme", "cancel_timers", "list_timers", "copy_last", "stopwatch", "focus", "password", "convert", "pet", "pet_picker", "pet_name", "fight", "ride", "close_tabs"];
   if (instant.includes(command.name)) return true;
   return command.name === "music_play" && command.args.query === "";
 }

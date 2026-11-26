@@ -803,7 +803,7 @@ async function runOffline(text, image, source, command = parseCommand(text, pars
       "To answer questions from your screen I need my AI brain. Open **Settings** (the sliders icon) and paste an Anthropic API key. It takes a minute, and then I can answer anything.";
   } else if (command) {
     try {
-      reply = await toolbox.command(command, msg);
+      reply = await toolbox.command({ ...command, source }, msg);
     } catch (err) {
       reply = `Something went wrong: ${err.message}`;
     }

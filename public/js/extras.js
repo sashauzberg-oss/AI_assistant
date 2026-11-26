@@ -144,6 +144,20 @@ export function parseConversion(input) {
 }
 
 /** A secure random password using the Web Crypto API (no modulo bias). */
+/** What to say after "close all my tabs", from the desktop app's result. */
+export function describeClosedTabs(result) {
+  if (!result.ok) {
+    if (result.error === "unsupported-platform") return "Closing all your tabs works in the Nova desktop app on Windows.";
+    return "I couldn't close your tabs this time.";
+  }
+  const closed = result.closed.filter((c) => c.windows > 0);
+  if (!closed.length) return "You don't have any browser windows open. 🙂";
+  const names = closed.map((c) => c.browser);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
+  const windows = closed.reduce((n, c) => n + c.windows, 0);
+  return `🗂️ Closed **${windows} ${list} window${windows === 1 ? "" : "s"}** with all their tabs. Changed your mind? Open the browser and press **Ctrl+Shift+T** to bring them back.`;
+}
+
 export function generatePassword({ length = 16, symbols = true } = {}) {
   const n = Math.max(8, Math.min(128, Math.round(length)));
   const lower = "abcdefghijkmnopqrstuvwxyz";
